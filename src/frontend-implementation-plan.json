@@ -1,0 +1,85 @@
+{
+  "kind": "implementation_plan",
+  "version": "1.0",
+  "title": "Driver alert color coding, clearer road metrics, and improved curved-road segmentation",
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "summary": "Update Driver Alerts UI so safe/normal states are green and any warning/danger/critical states are red, applied consistently across the panel.",
+      "acceptanceCriteria": [
+        "When there are no alerts (no obstacles, no emergency conditions, and not overspeed), the DriverAlertPanel “No alerts / All systems normal” state is visually styled as safe (green text/accent/background).",
+        "Any warning/danger state (including: speed limit exceeded, Warning emergencies, Moderate/High risk obstacles, Critical emergencies) is visually styled with red as the primary status color (not teal/yellow).",
+        "The updated colors are applied consistently across the DriverAlertPanel elements (headings/labels/badges/borders) without reducing readability in light and dark themes."
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/DriverAlertPanel.tsx",
+          "operation": "modify",
+          "description": "Adjust status styling logic and Tailwind classes so the no-alert state uses green (safe) accents, and all alert severities (overspeed, warning emergencies, moderate/high-risk obstacles, critical emergencies) use red as the primary status color across headings, badges, borders, and backgrounds."
+        },
+        {
+          "path": "frontend/src/components/LiveCameraSection.tsx",
+          "operation": "modify",
+          "description": "Ensure the DriverAlertPanel continues to read clearly in live mode alongside other status badges; make any necessary small class adjustments around the panel container to preserve readability and visual contrast after the alert color changes."
+        },
+        {
+          "path": "frontend/src/components/DetectionResults.tsx",
+          "operation": "modify",
+          "description": "Update the non-live DriverAlertPanel embedding to maintain consistent visual spacing and readability with the updated red/green status styling (no behavior changes; just ensure layout remains consistent after the UI update)."
+        }
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "summary": "Make the Detection Metrics “Road Information” section easier to scan and explicitly indicate when no objects are detected, without breaking existing props usage in live/non-live modes.",
+      "acceptanceCriteria": [
+        "The ‘Road Information’ area clearly displays road type and object detection status with stronger visual hierarchy (labels vs values) than the current layout.",
+        "When the object detection result is empty/none/clear, the UI explicitly shows a clear 'No objects detected' (or equivalent) message rather than only relying on ambiguous text.",
+        "The metrics presentation remains compatible with both live and non-live modes and does not break existing MetricsPanel props usage."
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/MetricsPanel.tsx",
+          "operation": "modify",
+          "description": "Refactor the “Road Information” subsection to improve label/value hierarchy (e.g., stronger value emphasis and clearer grouping) and normalize the object detection string so empty/none/clear-road-like values render an explicit 'No objects detected' message; keep the existing MetricsPanel props contract intact for both live and non-live usage."
+        },
+        {
+          "path": "frontend/src/components/LiveCameraSection.tsx",
+          "operation": "modify",
+          "description": "Confirm live-mode metric values passed into MetricsPanel still align with the updated Road Information display expectations (e.g., objectDetection string variants) and adjust only the caller-side mapping if needed to avoid ambiguous 'clear' messaging."
+        },
+        {
+          "path": "frontend/src/components/DetectionResults.tsx",
+          "operation": "modify",
+          "description": "Confirm non-live (image upload) metric values passed into MetricsPanel still render the improved Road Information hierarchy and the explicit 'No objects detected' message when appropriate; adjust only the passed text values if needed while preserving existing props shape."
+        }
+      ]
+    },
+    {
+      "id": "REQ-3",
+      "summary": "Improve the road segmentation pipeline to better preserve curved road continuity, remove non-determinism, and fix morphology post-processing to correctly handle non-square images.",
+      "acceptanceCriteria": [
+        "Road masks produced by the road detection pipeline show improved continuity along curved road boundaries compared to the current behavior.",
+        "Remove or significantly reduce sources of non-determinism in road mask generation that can cause inconsistent road coverage between runs on the same image/frame.",
+        "Fix any mask post-processing issues that assume a square image (e.g., morphology operations using sqrt(length)) so morphology works correctly for arbitrary width/height inputs."
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/lib/roadDetection.ts",
+          "operation": "modify",
+          "description": "Update the road region segmentation and post-processing to improve curved-road continuity (e.g., more continuity-preserving mask growth/closing along boundaries), remove non-deterministic behavior (eliminate Math.random-driven mask and confidence variability), and refactor morphology helpers (dilate/erode/close) to operate with explicit width/height rather than sqrt(length) so non-square frames are handled correctly."
+        },
+        {
+          "path": "frontend/src/components/LiveCameraSection.tsx",
+          "operation": "modify",
+          "description": "Validate that live processing continues to call the updated road detection pipeline correctly for arbitrary video frame sizes, and adjust any assumptions in the live rendering flow if needed to match the updated deterministic outputs."
+        },
+        {
+          "path": "frontend/src/components/ImageUploadSection.tsx",
+          "operation": "modify",
+          "description": "Validate that image-mode processing still works correctly with the updated road detection pipeline changes (especially for non-square uploads) and adjust any caller-side assumptions only if needed; keep the existing UI and persistence flow intact."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "kind": "feature_evidence_report",
+  "features": [
+    {
+      "featureId": "feature-update-the-driver-alerts-ui-to-use-clear-status-color-coding-show-warning-danger-critical-alerts-in-red-and-show-the-safe-normal-state-in-green",
+      "featureTitle": "Update the Driver Alerts UI to use clear status color-coding: show warning/danger/critical alerts in red, and show the safe/normal state in green.",
+      "files": [
+        "frontend/src/components/DriverAlertPanel.tsx"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0"
+      ],
+      "testIds": [
+        "REQ-1"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-improve-the-detection-metrics-road-information-section-so-the-road-information-is-easier-to-understand-at-a-glance-and-explicitly-communicates-when-no-objects-are-detected",
+      "featureTitle": "Improve the Detection Metrics ‘Road Information’ section so the road information is easier to understand at a glance, and explicitly communicates when no objects are detected.",
+      "files": [
+        "frontend/src/components/MetricsPanel.tsx"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0"
+      ],
+      "testIds": [
+        "REQ-2"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-improve-the-road-region-segmentation-algorithm-so-it-better-detects-curved-roads-the-current-system-misses-curves",
+      "featureTitle": "Improve the road region segmentation algorithm so it better detects curved roads (the current system misses curves).",
+      "files": [
+        "frontend/src/lib/roadDetection.ts"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0"
+      ],
+      "testIds": [
+        "REQ-3"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

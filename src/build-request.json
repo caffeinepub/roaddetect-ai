@@ -1,0 +1,74 @@
+{
+  "kind": "build_request",
+  "title": "Improve driver alert color coding, clarify road metrics, and enhance curved-road detection",
+  "priority": "normal",
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "text": "Update the Driver Alerts UI to use clear status color-coding: show warning/danger/critical alerts in red, and show the safe/normal state in green.",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "for driver alert warning should given in red color and if it is safe then give in green"
+        ]
+      },
+      "acceptanceCriteria": [
+        "When there are no alerts (no obstacles, no emergency conditions, and not overspeed), the DriverAlertPanel “No alerts / All systems normal” state is visually styled as safe (green text/accent/background).",
+        "Any warning/danger state (including: speed limit exceeded, Warning emergencies, Moderate/High risk obstacles, Critical emergencies) is visually styled with red as the primary status color (not teal/yellow).",
+        "The updated colors are applied consistently across the DriverAlertPanel elements (headings/labels/badges/borders) without reducing readability in light and dark themes."
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "text": "Improve the Detection Metrics ‘Road Information’ section so the road information is easier to understand at a glance, and explicitly communicates when no objects are detected.",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "for detection metrics road information should be clear and objects are not detected in it then"
+        ]
+      },
+      "acceptanceCriteria": [
+        "The ‘Road Information’ area clearly displays road type and object detection status with stronger visual hierarchy (labels vs values) than the current layout.",
+        "When the object detection result is empty/none/clear, the UI explicitly shows a clear 'No objects detected' (or equivalent) message rather than only relying on ambiguous text.",
+        "The metrics presentation remains compatible with both live and non-live modes and does not break existing MetricsPanel props usage."
+      ]
+    },
+    {
+      "id": "REQ-3",
+      "text": "Improve the road region segmentation algorithm so it better detects curved roads (the current system misses curves).",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "and in detection system it is not detecting the curves on road"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Road masks produced by the road detection pipeline show improved continuity along curved road boundaries compared to the current behavior.",
+        "Remove or significantly reduce sources of non-determinism in road mask generation that can cause inconsistent road coverage between runs on the same image/frame.",
+        "Fix any mask post-processing issues that assume a square image (e.g., morphology operations using sqrt(length)) so morphology works correctly for arbitrary width/height inputs."
+      ]
+    }
+  ],
+  "constraints": [
+    "Do not edit files under frontend/src/components/ui (read-only).",
+    "Do not edit immutable hook paths: frontend/src/hooks/useInternetIdentity.ts, frontend/src/hooks/useInternetIdentity.tsx, frontend/src/hooks/useActor.ts, frontend/src/main.tsx."
+  ],
+  "nonGoals": [
+    "Do not add new authentication methods beyond Internet Identity.",
+    "Do not introduce a new backend service or external database.",
+    "Do not implement real-time communication via WebSockets."
+  ],
+  "imageRequirements": {
+    "required": [],
+    "edits": []
+  }
+}
