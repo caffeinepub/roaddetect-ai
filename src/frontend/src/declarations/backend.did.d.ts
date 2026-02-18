@@ -10,52 +10,17 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface CameraStatusRequest { 'state' : string }
-export interface CameraStatusResponse { 'message' : string }
-export interface DetectionResult {
-  'id' : string,
-  'environmentalConditions' : {
-    'roadType' : string,
-    'surfaceType' : string,
-    'lighting' : string,
-    'weather' : string,
-  },
-  'metrics' : {
-    'objectDetection' : string,
-    'systemPerformance' : {
-      'cpuUtilization' : number,
-      'gpuUtilization' : number,
-      'memoryUsage' : number,
-      'hardwareType' : string,
-    },
-    'detectionQuality' : number,
-    'frameRate' : number,
-  },
-  'processingTime' : bigint,
-  'confidenceScore' : number,
-  'processedImage' : ExternalBlob,
-  'timestamp' : Time,
-  'image' : ExternalBlob,
-}
-export interface EmergencyEvent {
-  'id' : string,
-  'type' : string,
-  'resolutionStatus' : string,
-  'description' : string,
-  'timestamp' : Time,
-  'associatedDetectionId' : string,
-  'severity' : { 'urgency' : string, 'level' : string },
+export interface Classification {
+  'motion' : MotionType,
+  'objectType' : ObjectType,
 }
 export type ExternalBlob = Uint8Array;
-export interface HardwarePerformanceMetrics {
-  'optimizationLevel' : string,
-  'processingEfficiency' : number,
-  'cpuUtilization' : number,
-  'gpuUtilization' : number,
-  'memoryUsage' : number,
-  'benchmarkScores' : { 'gpuScore' : number, 'cpuScore' : number },
-  'hardwareType' : string,
-}
+export type MotionType = { 'static' : null } |
+  { 'moving' : null };
+export type ObjectType = { 'pedestrian' : null } |
+  { 'debris' : null } |
+  { 'vehicle' : null } |
+  { 'unknown' : null };
 export interface ObstacleEvent {
   'id' : string,
   'type' : string,
@@ -65,25 +30,31 @@ export interface ObstacleEvent {
   'image' : ExternalBlob,
   'position' : { 'x' : number, 'y' : number },
   'riskLevel' : { 'description' : string, 'level' : string },
+  'potholeDetails' : [] | [PotholeDetails],
+  'classification' : Classification,
 }
-export interface SpecificationReportResponse {
-  'id' : string,
-  'content' : ExternalBlob,
+export interface PotholeDetails {
+  'potholeType' : PotholeType,
+  'image_url' : string,
+  'distance_from_vehicle' : number,
   'createdAt' : Time,
+  'size' : number,
+  'severity' : string,
+  'depth' : number,
+  'location' : { 'coordinates' : [number, number], 'accuracy' : number },
 }
-export interface SpeedLimitDetection {
-  'id' : string,
-  'frameData' : ExternalBlob,
-  'confidenceLevel' : number,
-  'timestamp' : Time,
-  'detectedSpeedLimit' : [] | [bigint],
-  'associatedDetectionId' : string,
-}
+export type PotholeType = { 'deep' : null } |
+  { 'edge' : null } |
+  { 'pavement' : null } |
+  { 'complex' : null } |
+  { 'rough_size' : null } |
+  { 'surface_cracks' : null } |
+  { 'unknown' : null };
 export type Time = bigint;
-export interface VideoProcessingStatusRequest { 'taskId' : string }
-export type VideoProcessingStatusResponse = {};
-export interface VideoUploadRequest { 'videoBlob' : ExternalBlob }
-export interface VideoUploadResponse { 'taskId' : string }
+export interface UserProfile { 'name' : string }
+export type UserRole = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
 export interface _CaffeineStorageCreateCertificateResult {
   'method' : string,
   'blob_hash' : string,
@@ -111,142 +82,29 @@ export interface _SERVICE {
     _CaffeineStorageRefillResult
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
-  'getAllDetectionResults' : ActorMethod<[], Array<DetectionResult>>,
-  'getAllEmergencyEvents' : ActorMethod<[], Array<EmergencyEvent>>,
-  'getAllHardwarePerformanceMetrics' : ActorMethod<
-    [],
-    Array<HardwarePerformanceMetrics>
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addPotholeSpecificEvent' : ActorMethod<
+    [
+      string,
+      { 'x' : number, 'y' : number },
+      number,
+      Time,
+      string,
+      ExternalBlob,
+      { 'description' : string, 'level' : string },
+      PotholeDetails,
+    ],
+    undefined
   >,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'getAllObstacleEvents' : ActorMethod<[], Array<ObstacleEvent>>,
-  'getAllSpecificationReports' : ActorMethod<
-    [],
-    Array<SpecificationReportResponse>
-  >,
-  'getAllSpeedLimitDetections' : ActorMethod<[], Array<SpeedLimitDetection>>,
-  'getCombinedAlertHistory' : ActorMethod<
-    [],
-    {
-      'detectionResults' : Array<DetectionResult>,
-      'speedLimitDetections' : Array<SpeedLimitDetection>,
-      'emergencyEvents' : Array<EmergencyEvent>,
-      'hardwarePerformanceMetrics' : Array<HardwarePerformanceMetrics>,
-      'obstacleEvents' : Array<ObstacleEvent>,
-    }
-  >,
-  'getDetectionResult' : ActorMethod<[string], DetectionResult>,
-  'getDetectionStatistics' : ActorMethod<
-    [],
-    {
-      'totalDetections' : bigint,
-      'totalHighRiskEvents' : bigint,
-      'averageDetectionTime' : number,
-      'highestRiskLevel' : string,
-      'totalSpeedLimitDetections' : bigint,
-      'totalEmergencyEvents' : bigint,
-      'mostCommonObjectType' : string,
-      'totalObstacleEvents' : bigint,
-      'averageConfidenceScore' : number,
-      'averageHardwareEfficiency' : number,
-      'averageSpeedLimitConfidence' : number,
-      'averageProcessingTime' : number,
-    }
-  >,
-  'getEmergencyEvent' : ActorMethod<[string], EmergencyEvent>,
-  'getEnvironmentalAnalysis' : ActorMethod<
-    [],
-    {
-      'detectionScoreByCondition' : {
-        'surfaceQuality' : string,
-        'avgScore' : number,
-        'commonRoadType' : string,
-        'lighting' : string,
-        'weather' : string,
-      },
-    }
-  >,
-  'getFilteredAlertHistory' : ActorMethod<
-    [
-      {
-        'detectionRange' : [] | [number],
-        'weatherCondition' : [] | [string],
-        'timeRange' : [] | [{ 'end' : Time, 'start' : Time }],
-        'severity' : [] | [string],
-        'speedLimitRange' : [] | [{ 'lower' : bigint, 'upper' : bigint }],
-        'objectType' : [] | [string],
-        'riskLevel' : [] | [string],
-      },
-    ],
-    {
-      'detectionResults' : Array<DetectionResult>,
-      'speedLimitDetections' : Array<SpeedLimitDetection>,
-      'emergencyEvents' : Array<EmergencyEvent>,
-      'obstacleEvents' : Array<ObstacleEvent>,
-    }
-  >,
-  'getFilteredEventHistory' : ActorMethod<
-    [
-      {
-        'detectionRange' : [] | [number],
-        'severity' : [] | [string],
-        'objectType' : [] | [string],
-        'riskLevel' : [] | [string],
-      },
-    ],
-    {
-      'emergencyEvents' : Array<EmergencyEvent>,
-      'obstacleEvents' : Array<ObstacleEvent>,
-    }
-  >,
-  'getHardwarePerformanceMetrics' : ActorMethod<
-    [string],
-    HardwarePerformanceMetrics
-  >,
+  'getAllPotholeEvents' : ActorMethod<[], Array<ObstacleEvent>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getObstacleEvent' : ActorMethod<[string], ObstacleEvent>,
-  'getSpecificationReport' : ActorMethod<[string], SpecificationReportResponse>,
-  'getSpeedLimitDetection' : ActorMethod<[string], SpeedLimitDetection>,
-  'getVideoProcessingStatus' : ActorMethod<
-    [VideoProcessingStatusRequest],
-    VideoProcessingStatusResponse
-  >,
-  'handleVideoUpload' : ActorMethod<[VideoUploadRequest], VideoUploadResponse>,
-  'storeDetectionResult' : ActorMethod<
-    [
-      string,
-      ExternalBlob,
-      ExternalBlob,
-      number,
-      bigint,
-      Time,
-      string,
-      string,
-      string,
-      string,
-      number,
-      number,
-      string,
-      string,
-      number,
-      number,
-      number,
-    ],
-    undefined
-  >,
-  'storeEmergencyEvent' : ActorMethod<
-    [
-      string,
-      string,
-      Time,
-      string,
-      string,
-      { 'urgency' : string, 'level' : string },
-      string,
-    ],
-    undefined
-  >,
-  'storeHardwarePerformanceMetrics' : ActorMethod<
-    [string, string, number, number, number, number, number, string, number],
-    undefined
-  >,
+  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'storeObstacleEvent' : ActorMethod<
     [
       string,
@@ -257,20 +115,10 @@ export interface _SERVICE {
       string,
       ExternalBlob,
       { 'description' : string, 'level' : string },
+      Classification,
+      [] | [PotholeDetails],
     ],
     undefined
-  >,
-  'storeSpecificationReport' : ActorMethod<
-    [string, ExternalBlob, Time],
-    undefined
-  >,
-  'storeSpeedLimitDetection' : ActorMethod<
-    [string, [] | [bigint], number, Time, string, ExternalBlob],
-    undefined
-  >,
-  'updateCameraStatus' : ActorMethod<
-    [CameraStatusRequest],
-    CameraStatusResponse
   >,
 }
 export declare const idlService: IDL.ServiceClass;

@@ -1,277 +1,275 @@
-import { useEffect, useRef } from 'react';
-import { AlertTriangle, AlertCircle, Info, Volume2, VolumeX } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, AlertCircle, ShieldAlert, Construction } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import type { ObstacleInfo, EmergencyCondition } from '@/lib/obstacleDetection';
+import type { ObstacleInfo, EmergencyCondition } from '@/types/detection';
+import type { PotholeDetection } from '@/types/detection';
 
 interface DriverAlertPanelProps {
   obstacles: ObstacleInfo[];
   emergencyConditions: EmergencyCondition[];
+  potholes?: PotholeDetection[];
   detectedSpeedLimit?: number | null;
   currentSpeed?: number;
-  soundEnabled: boolean;
-  onToggleSound: () => void;
+  soundEnabled?: boolean;
 }
 
 export default function DriverAlertPanel({
   obstacles,
   emergencyConditions,
+  potholes = [],
   detectedSpeedLimit,
   currentSpeed = 0,
-  soundEnabled,
-  onToggleSound,
+  soundEnabled = true,
 }: DriverAlertPanelProps) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lastAlertTimeRef = useRef<number>(0);
-  const lastSpeedAlertTimeRef = useRef<number>(0);
+  const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
+  const lastAlertTimeRef = useRef<{ [key: string]: number }>({});
+  const audioContextRef = useRef<AudioContext | null>(null);
 
-  const isOverSpeed = detectedSpeedLimit != null && currentSpeed > detectedSpeedLimit;
-  const speedExcess = isOverSpeed && detectedSpeedLimit != null ? currentSpeed - detectedSpeedLimit : 0;
-
-  // Play alert sound when high-risk obstacles, critical emergencies, or speeding detected
+  // Initialize audio context
   useEffect(() => {
-    if (!soundEnabled) return;
-
-    const now = Date.now();
-    const timeSinceLastAlert = now - lastAlertTimeRef.current;
-
-    // Throttle alerts to once per 2 seconds
-    if (timeSinceLastAlert < 2000) return;
-
-    const hasHighRisk = obstacles.some(o => o.riskLevel.level === 'High');
-    const hasCritical = emergencyConditions.some(e => e.severity.level === 'Critical');
-
-    if (hasHighRisk || hasCritical) {
-      playAlertSound(800, 0.5);
-      lastAlertTimeRef.current = now;
+    if (soundEnabled && !audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
-  }, [obstacles, emergencyConditions, soundEnabled]);
+  }, [soundEnabled]);
 
-  // Play speed alert sound
-  useEffect(() => {
-    if (!soundEnabled || !isOverSpeed) return;
-
-    const now = Date.now();
-    const timeSinceLastSpeedAlert = now - lastSpeedAlertTimeRef.current;
-
-    // Alert frequency based on speed excess
-    const alertInterval = speedExcess > 20 ? 3000 : 5000;
-
-    if (timeSinceLastSpeedAlert > alertInterval) {
-      playAlertSound(600, 0.4);
-      lastSpeedAlertTimeRef.current = now;
-    }
-  }, [isOverSpeed, speedExcess, soundEnabled]);
-
+  // Play alert sound
   const playAlertSound = (frequency: number, duration: number) => {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
+    if (!soundEnabled || !audioContextRef.current) return;
 
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
+    try {
+      const ctx = audioContextRef.current;
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
 
-    oscillator.frequency.value = frequency;
-    oscillator.type = 'sine';
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
 
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+      oscillator.frequency.value = frequency;
+      oscillator.type = 'sine';
 
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + duration);
+      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + duration);
+    } catch (error) {
+      console.error('Audio playback error:', error);
+    }
   };
 
-  const highRiskObstacles = obstacles.filter(o => o.riskLevel.level === 'High');
-  const moderateRiskObstacles = obstacles.filter(o => o.riskLevel.level === 'Moderate');
-  const criticalEmergencies = emergencyConditions.filter(e => e.severity.level === 'Critical');
-  const warningEmergencies = emergencyConditions.filter(e => e.severity.level === 'Warning');
+  // Check for pothole alerts (within 50 meters)
+  useEffect(() => {
+    const now = Date.now();
+    const alertThrottle = 3000; // 3 seconds between same type alerts
 
-  const hasAlerts = obstacles.length > 0 || emergencyConditions.length > 0 || isOverSpeed;
+    const nearbyPotholes = potholes.filter(p => p.distance <= 50);
+
+    if (nearbyPotholes.length > 0) {
+      const alertKey = 'pothole';
+      const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
+
+      if (now - lastAlertTime > alertThrottle) {
+        const closestPothole = nearbyPotholes.reduce((closest, current) =>
+          current.distance < closest.distance ? current : closest
+        );
+
+        const alertMessage = `Potholes on road - ${closestPothole.distance.toFixed(0)}m ahead`;
+
+        setActiveAlerts(prev => {
+          const filtered = prev.filter(a => !a.startsWith('Potholes on road'));
+          return [alertMessage, ...filtered].slice(0, 5);
+        });
+
+        // Play alert sound based on severity
+        let frequency = 600;
+        if (closestPothole.severity === 'High') frequency = 800;
+        else if (closestPothole.severity === 'Moderate') frequency = 700;
+
+        playAlertSound(frequency, 0.3);
+        lastAlertTimeRef.current[alertKey] = now;
+      }
+    }
+  }, [potholes, soundEnabled]);
+
+  // Check for obstacle alerts
+  useEffect(() => {
+    const now = Date.now();
+    const alertThrottle = 3000;
+
+    obstacles.forEach((obstacle) => {
+      if (obstacle.riskLevel.level === 'High') {
+        const alertKey = `obstacle_${obstacle.type}`;
+        const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
+
+        if (now - lastAlertTime > alertThrottle) {
+          const motionLabel = obstacle.motion ? ` • ${obstacle.motion}` : '';
+          const alertMessage = `${obstacle.type}${motionLabel} detected - ${obstacle.riskLevel.description}`;
+
+          setActiveAlerts(prev => {
+            const filtered = prev.filter(a => !a.includes(obstacle.type));
+            return [alertMessage, ...filtered].slice(0, 5);
+          });
+
+          playAlertSound(900, 0.2);
+          lastAlertTimeRef.current[alertKey] = now;
+        }
+      }
+    });
+  }, [obstacles, soundEnabled]);
+
+  // Check for emergency alerts
+  useEffect(() => {
+    const now = Date.now();
+    const alertThrottle = 5000;
+
+    emergencyConditions.forEach((emergency) => {
+      if (emergency.severity.level === 'Critical') {
+        const alertKey = `emergency_${emergency.type}`;
+        const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
+
+        if (now - lastAlertTime > alertThrottle) {
+          const alertMessage = `EMERGENCY: ${emergency.description}`;
+
+          setActiveAlerts(prev => {
+            const filtered = prev.filter(a => !a.includes(emergency.type));
+            return [alertMessage, ...filtered].slice(0, 5);
+          });
+
+          playAlertSound(1000, 0.5);
+          lastAlertTimeRef.current[alertKey] = now;
+        }
+      }
+    });
+  }, [emergencyConditions, soundEnabled]);
+
+  // Check for speed limit violations
+  useEffect(() => {
+    if (detectedSpeedLimit && currentSpeed > detectedSpeedLimit) {
+      const now = Date.now();
+      const alertKey = 'speed_violation';
+      const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
+      const alertThrottle = 5000;
+
+      if (now - lastAlertTime > alertThrottle) {
+        const overspeed = currentSpeed - detectedSpeedLimit;
+        const alertMessage = `Speed limit exceeded by ${overspeed} km/h`;
+
+        setActiveAlerts(prev => {
+          const filtered = prev.filter(a => !a.includes('Speed limit'));
+          return [alertMessage, ...filtered].slice(0, 5);
+        });
+
+        playAlertSound(750, 0.3);
+        lastAlertTimeRef.current[alertKey] = now;
+      }
+    }
+  }, [detectedSpeedLimit, currentSpeed, soundEnabled]);
+
+  const highRiskObstacles = obstacles.filter(o => o.riskLevel.level === 'High');
+  const criticalEmergencies = emergencyConditions.filter(e => e.severity.level === 'Critical');
+  const nearbyPotholes = potholes.filter(p => p.distance <= 50);
+  const speedViolation = detectedSpeedLimit && currentSpeed > detectedSpeedLimit;
+
+  const hasAlerts = highRiskObstacles.length > 0 || criticalEmergencies.length > 0 || nearbyPotholes.length > 0 || speedViolation;
 
   return (
-    <Card className={`card-enhanced ${hasAlerts ? 'animate-pulse-glow' : ''}`}>
-      <CardContent className="space-y-4 pt-6">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Driver Alerts</h3>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggleSound}
-            className="h-8 w-8 p-0"
-          >
-            {soundEnabled ? (
-              <Volume2 className="h-4 w-4" />
-            ) : (
-              <VolumeX className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-
-        {!hasAlerts && (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="mb-3 rounded-full bg-green-500/10 p-4">
-              <Info className="h-8 w-8 text-green-600 dark:text-green-500" />
-            </div>
-            <p className="text-sm font-medium text-green-700 dark:text-green-500">
-              No alerts
-            </p>
-            <p className="mt-1 text-xs text-green-600 dark:text-green-400">
-              All systems normal
-            </p>
-          </div>
+    <Card className="border-2 border-warning/30 bg-gradient-to-br from-background to-warning/5">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <ShieldAlert className="h-5 w-5 text-warning" />
+          Driver Alerts
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!hasAlerts && activeAlerts.length === 0 && (
+          <Alert className="border-success/30 bg-success/5">
+            <AlertCircle className="h-4 w-4 text-success" />
+            <AlertDescription className="text-success">
+              All clear - No immediate hazards detected
+            </AlertDescription>
+          </Alert>
         )}
 
-        {/* Speed Limit Violation Alert */}
-        {isOverSpeed && detectedSpeedLimit != null && (
-          <div className="animate-pulse-glow rounded-xl border-2 border-red-600 bg-red-600/10 p-4">
-            <div className="flex items-start gap-3">
-              <img 
-                src="/assets/generated/speed-enforcement-icon-transparent.dim_64x64.png" 
-                alt="Speed Warning" 
-                className="h-6 w-6 flex-shrink-0"
-              />
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-bold text-red-700 dark:text-red-500">SPEED LIMIT EXCEEDED</p>
-                  <Badge className="bg-red-600 text-white hover:bg-red-700 text-xs">
-                    CRITICAL
-                  </Badge>
-                </div>
-                <p className="text-sm text-red-700 dark:text-red-400">
-                  Current speed: {currentSpeed} km/h | Limit: {detectedSpeedLimit} km/h
-                </p>
-                <p className="text-xs font-medium text-red-600 dark:text-red-400">
-                  Reduce speed by {speedExcess} km/h immediately
-                </p>
+        {nearbyPotholes.length > 0 && (
+          <Alert className="border-warning/50 bg-warning/10 animate-pulse">
+            <Construction className="h-4 w-4 text-warning" />
+            <AlertDescription className="font-semibold text-warning">
+              Potholes on road
+              <div className="mt-1 text-sm font-normal">
+                {nearbyPotholes.length} pothole{nearbyPotholes.length > 1 ? 's' : ''} detected within 50m
+                {nearbyPotholes.length > 0 && (
+                  <span className="ml-2">
+                    • Closest: {Math.min(...nearbyPotholes.map(p => p.distance)).toFixed(0)}m ahead
+                  </span>
+                )}
               </div>
-            </div>
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
 
-        {/* Critical Emergencies */}
-        {criticalEmergencies.length > 0 && (
-          <div className="space-y-2">
-            {criticalEmergencies.map(emergency => (
-              <div
-                key={emergency.id}
-                className="animate-pulse-glow rounded-xl border-2 border-red-600 bg-red-600/10 p-4"
-              >
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-6 w-6 flex-shrink-0 text-red-700 dark:text-red-500" />
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-bold text-red-700 dark:text-red-500">{emergency.type}</p>
-                      <Badge className="bg-red-600 text-white hover:bg-red-700 text-xs">
-                        CRITICAL
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-red-700 dark:text-red-400">{emergency.description}</p>
-                    <p className="text-xs font-medium text-red-600 dark:text-red-400">
-                      {emergency.severity.urgency}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* High Risk Obstacles */}
         {highRiskObstacles.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="text-sm font-semibold text-red-700 dark:text-red-500">
-              High Risk Obstacles ({highRiskObstacles.length})
-            </h4>
-            {highRiskObstacles.map(obstacle => (
-              <div
-                key={obstacle.id}
-                className="rounded-lg border border-red-600/50 bg-red-600/5 p-3"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-red-700 dark:text-red-500">
+          <Alert className="border-destructive/50 bg-destructive/10">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <AlertDescription className="font-semibold text-destructive">
+              High Risk Obstacles Detected
+              <div className="mt-2 space-y-1">
+                {highRiskObstacles.slice(0, 3).map((obstacle) => (
+                  <div key={obstacle.id} className="flex items-center gap-2 text-sm font-normal">
+                    <Badge variant="destructive" className="text-xs">
                       {obstacle.type}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {obstacle.riskLevel.description}
-                    </p>
+                      {obstacle.motion && ` • ${obstacle.motion}`}
+                    </Badge>
+                    <span className="text-muted-foreground">{obstacle.riskLevel.description}</span>
                   </div>
-                  <Badge className="bg-red-600 text-white hover:bg-red-700 text-xs">
-                    {(obstacle.confidenceLevel * 100).toFixed(0)}%
-                  </Badge>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
 
-        {/* Warning Emergencies */}
-        {warningEmergencies.length > 0 && (
-          <div className="space-y-2">
-            {warningEmergencies.map(emergency => (
-              <div
-                key={emergency.id}
-                className="rounded-lg border border-red-500/50 bg-red-500/10 p-3"
-              >
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-600 dark:text-red-500" />
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-red-700 dark:text-red-500">
-                        {emergency.type}
-                      </p>
-                      <Badge
-                        variant="outline"
-                        className="border-red-600 text-red-700 dark:text-red-500 text-xs"
-                      >
-                        WARNING
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {emergency.description}
-                    </p>
+        {criticalEmergencies.length > 0 && (
+          <Alert className="border-destructive bg-destructive/20 animate-pulse">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <AlertDescription className="font-bold text-destructive">
+              EMERGENCY CONDITIONS
+              <div className="mt-2 space-y-1">
+                {criticalEmergencies.map((emergency) => (
+                  <div key={emergency.id} className="text-sm font-normal">
+                    {emergency.description}
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
 
-        {/* Moderate Risk Obstacles */}
-        {moderateRiskObstacles.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="text-sm font-semibold text-red-600 dark:text-red-500">
-              Moderate Risk ({moderateRiskObstacles.length})
-            </h4>
-            <div className="space-y-1.5">
-              {moderateRiskObstacles.slice(0, 3).map(obstacle => (
-                <div
-                  key={obstacle.id}
-                  className="flex items-center justify-between rounded-lg bg-red-500/5 border border-red-500/30 p-2"
-                >
-                  <p className="text-xs font-medium text-red-700 dark:text-red-500">{obstacle.type}</p>
-                  <Badge variant="outline" className="border-red-500 text-red-600 dark:text-red-500 text-xs">
-                    {(obstacle.confidenceLevel * 100).toFixed(0)}%
-                  </Badge>
-                </div>
-              ))}
-              {moderateRiskObstacles.length > 3 && (
-                <p className="text-xs text-muted-foreground text-center">
-                  +{moderateRiskObstacles.length - 3} more
-                </p>
-              )}
+        {speedViolation && (
+          <Alert className="border-warning/50 bg-warning/10">
+            <AlertCircle className="h-4 w-4 text-warning" />
+            <AlertDescription className="font-semibold text-warning">
+              Speed Limit Violation
+              <div className="mt-1 text-sm font-normal">
+                Current: {currentSpeed} km/h • Limit: {detectedSpeedLimit} km/h
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {activeAlerts.length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-border/50">
+            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Recent Alerts
             </div>
-          </div>
-        )}
-
-        {/* Summary */}
-        {hasAlerts && (
-          <div className="rounded-lg bg-muted/30 p-3 text-center">
-            <p className="text-xs text-muted-foreground">
-              {isOverSpeed && <span className="font-semibold text-red-700 dark:text-red-500">Speed violation • </span>}
-              {obstacles.length > 0 && <span>Obstacles: <span className="font-semibold">{obstacles.length}</span></span>}
-            </p>
+            {activeAlerts.map((alert, index) => (
+              <div
+                key={index}
+                className="text-sm text-foreground/80 py-1 px-2 rounded bg-muted/30"
+              >
+                {alert}
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

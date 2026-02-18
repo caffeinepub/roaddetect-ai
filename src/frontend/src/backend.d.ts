@@ -29,175 +29,76 @@ export interface ObstacleEvent {
         description: string;
         level: string;
     };
-}
-export interface VideoProcessingStatusResponse {
+    potholeDetails?: PotholeDetails;
+    classification: Classification;
 }
 export type Time = bigint;
-export interface EmergencyEvent {
-    id: string;
-    type: string;
-    resolutionStatus: string;
-    description: string;
-    timestamp: Time;
-    associatedDetectionId: string;
-    severity: {
-        urgency: string;
-        level: string;
-    };
+export interface Classification {
+    motion: MotionType;
+    objectType: ObjectType;
 }
-export interface SpecificationReportResponse {
-    id: string;
-    content: ExternalBlob;
+export interface PotholeDetails {
+    potholeType: PotholeType;
+    image_url: string;
+    distance_from_vehicle: number;
     createdAt: Time;
-}
-export interface DetectionResult {
-    id: string;
-    environmentalConditions: {
-        roadType: string;
-        surfaceType: string;
-        lighting: string;
-        weather: string;
+    size: number;
+    severity: string;
+    depth: number;
+    location: {
+        coordinates: [number, number];
+        accuracy: number;
     };
-    metrics: {
-        objectDetection: string;
-        systemPerformance: {
-            cpuUtilization: number;
-            gpuUtilization: number;
-            memoryUsage: number;
-            hardwareType: string;
-        };
-        detectionQuality: number;
-        frameRate: number;
-    };
-    processingTime: bigint;
-    confidenceScore: number;
-    processedImage: ExternalBlob;
-    timestamp: Time;
-    image: ExternalBlob;
 }
-export interface SpeedLimitDetection {
-    id: string;
-    frameData: ExternalBlob;
-    confidenceLevel: number;
-    timestamp: Time;
-    detectedSpeedLimit?: bigint;
-    associatedDetectionId: string;
+export interface UserProfile {
+    name: string;
 }
-export interface CameraStatusRequest {
-    state: string;
+export enum MotionType {
+    static_ = "static",
+    moving = "moving"
 }
-export interface VideoUploadResponse {
-    taskId: string;
+export enum ObjectType {
+    pedestrian = "pedestrian",
+    debris = "debris",
+    vehicle = "vehicle",
+    unknown_ = "unknown"
 }
-export interface VideoUploadRequest {
-    videoBlob: ExternalBlob;
+export enum PotholeType {
+    deep = "deep",
+    edge = "edge",
+    pavement = "pavement",
+    complex = "complex",
+    rough_size = "rough_size",
+    surface_cracks = "surface_cracks",
+    unknown_ = "unknown"
 }
-export interface HardwarePerformanceMetrics {
-    optimizationLevel: string;
-    processingEfficiency: number;
-    cpuUtilization: number;
-    gpuUtilization: number;
-    memoryUsage: number;
-    benchmarkScores: {
-        gpuScore: number;
-        cpuScore: number;
-    };
-    hardwareType: string;
-}
-export interface VideoProcessingStatusRequest {
-    taskId: string;
-}
-export interface CameraStatusResponse {
-    message: string;
+export enum UserRole {
+    admin = "admin",
+    user = "user",
+    guest = "guest"
 }
 export interface backendInterface {
-    getAllDetectionResults(): Promise<Array<DetectionResult>>;
-    getAllEmergencyEvents(): Promise<Array<EmergencyEvent>>;
-    getAllHardwarePerformanceMetrics(): Promise<Array<HardwarePerformanceMetrics>>;
-    getAllObstacleEvents(): Promise<Array<ObstacleEvent>>;
-    getAllSpecificationReports(): Promise<Array<SpecificationReportResponse>>;
-    getAllSpeedLimitDetections(): Promise<Array<SpeedLimitDetection>>;
-    getCombinedAlertHistory(): Promise<{
-        detectionResults: Array<DetectionResult>;
-        speedLimitDetections: Array<SpeedLimitDetection>;
-        emergencyEvents: Array<EmergencyEvent>;
-        hardwarePerformanceMetrics: Array<HardwarePerformanceMetrics>;
-        obstacleEvents: Array<ObstacleEvent>;
-    }>;
-    getDetectionResult(id: string): Promise<DetectionResult>;
-    getDetectionStatistics(): Promise<{
-        totalDetections: bigint;
-        totalHighRiskEvents: bigint;
-        averageDetectionTime: number;
-        highestRiskLevel: string;
-        totalSpeedLimitDetections: bigint;
-        totalEmergencyEvents: bigint;
-        mostCommonObjectType: string;
-        totalObstacleEvents: bigint;
-        averageConfidenceScore: number;
-        averageHardwareEfficiency: number;
-        averageSpeedLimitConfidence: number;
-        averageProcessingTime: number;
-    }>;
-    getEmergencyEvent(id: string): Promise<EmergencyEvent>;
-    getEnvironmentalAnalysis(): Promise<{
-        detectionScoreByCondition: {
-            surfaceQuality: string;
-            avgScore: number;
-            commonRoadType: string;
-            lighting: string;
-            weather: string;
-        };
-    }>;
-    getFilteredAlertHistory(filter: {
-        detectionRange?: number;
-        weatherCondition?: string;
-        timeRange?: {
-            end: Time;
-            start: Time;
-        };
-        severity?: string;
-        speedLimitRange?: {
-            lower: bigint;
-            upper: bigint;
-        };
-        objectType?: string;
-        riskLevel?: string;
-    }): Promise<{
-        detectionResults: Array<DetectionResult>;
-        speedLimitDetections: Array<SpeedLimitDetection>;
-        emergencyEvents: Array<EmergencyEvent>;
-        obstacleEvents: Array<ObstacleEvent>;
-    }>;
-    getFilteredEventHistory(filter: {
-        detectionRange?: number;
-        severity?: string;
-        objectType?: string;
-        riskLevel?: string;
-    }): Promise<{
-        emergencyEvents: Array<EmergencyEvent>;
-        obstacleEvents: Array<ObstacleEvent>;
-    }>;
-    getHardwarePerformanceMetrics(id: string): Promise<HardwarePerformanceMetrics>;
-    getObstacleEvent(id: string): Promise<ObstacleEvent>;
-    getSpecificationReport(id: string): Promise<SpecificationReportResponse>;
-    getSpeedLimitDetection(id: string): Promise<SpeedLimitDetection>;
-    getVideoProcessingStatus(arg0: VideoProcessingStatusRequest): Promise<VideoProcessingStatusResponse>;
-    handleVideoUpload(arg0: VideoUploadRequest): Promise<VideoUploadResponse>;
-    storeDetectionResult(id: string, image: ExternalBlob, processedImage: ExternalBlob, confidenceScore: number, processingTime: bigint, timestamp: Time, lighting: string, weather: string, roadType: string, surfaceType: string, frameRate: number, detectionQuality: number, objectDetection: string, hardwareType: string, cpuUtilization: number, gpuUtilization: number, memoryUsage: number): Promise<void>;
-    storeEmergencyEvent(id: string, type: string, timestamp: Time, associatedDetectionId: string, description: string, severity: {
-        urgency: string;
+    addPotholeSpecificEvent(id: string, position: {
+        x: number;
+        y: number;
+    }, confidenceLevel: number, timestamp: Time, associatedDetectionId: string, image: ExternalBlob, riskLevel: {
+        description: string;
         level: string;
-    }, resolutionStatus: string): Promise<void>;
-    storeHardwarePerformanceMetrics(id: string, hardwareType: string, cpuUtilization: number, gpuUtilization: number, memoryUsage: number, cpuScore: number, gpuScore: number, optimizationLevel: string, processingEfficiency: number): Promise<void>;
+    }, potholeDetails: PotholeDetails): Promise<void>;
+    assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    getAllObstacleEvents(): Promise<Array<ObstacleEvent>>;
+    getAllPotholeEvents(): Promise<Array<ObstacleEvent>>;
+    getCallerUserProfile(): Promise<UserProfile | null>;
+    getCallerUserRole(): Promise<UserRole>;
+    getObstacleEvent(id: string): Promise<ObstacleEvent>;
+    getUserProfile(user: Principal): Promise<UserProfile | null>;
+    isCallerAdmin(): Promise<boolean>;
+    saveCallerUserProfile(profile: UserProfile): Promise<void>;
     storeObstacleEvent(id: string, position: {
         x: number;
         y: number;
     }, type: string, confidenceLevel: number, timestamp: Time, associatedDetectionId: string, image: ExternalBlob, riskLevel: {
         description: string;
         level: string;
-    }): Promise<void>;
-    storeSpecificationReport(id: string, content: ExternalBlob, createdAt: Time): Promise<void>;
-    storeSpeedLimitDetection(id: string, detectedSpeedLimit: bigint | null, confidenceLevel: number, timestamp: Time, associatedDetectionId: string, frameData: ExternalBlob): Promise<void>;
-    updateCameraStatus(arg0: CameraStatusRequest): Promise<CameraStatusResponse>;
+    }, classification: Classification, potholeDetails: PotholeDetails | null): Promise<void>;
 }

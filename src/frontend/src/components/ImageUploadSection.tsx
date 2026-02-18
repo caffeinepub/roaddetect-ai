@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { processRoadDetection } from '@/lib/roadDetection';
 import DetectionResults from './DetectionResults';
-import { useStoreDetection, useStoreObstacleEvent, useStoreEmergencyEvent } from '@/hooks/useQueries';
-import { ExternalBlob } from '@/backend';
+import { useStoreObstacleEvent } from '@/hooks/useQueries';
+import { ExternalBlob, ObjectType, MotionType } from '@/backend';
 
 export default function ImageUploadSection() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -15,9 +15,7 @@ export default function ImageUploadSection() {
   const [detectionResult, setDetectionResult] = useState<any>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const storeDetection = useStoreDetection();
   const storeObstacleEvent = useStoreObstacleEvent();
-  const storeEmergencyEvent = useStoreEmergencyEvent();
 
   const handleFileSelect = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -64,15 +62,6 @@ export default function ImageUploadSection() {
     [handleFileSelect]
   );
 
-  // Derive surface type from road type
-  const deriveSurfaceType = (roadType: string): string => {
-    if (roadType.includes('Asphalt')) return 'asphalt';
-    if (roadType.includes('Concrete')) return 'concrete';
-    if (roadType.includes('Dirt')) return 'dirt';
-    if (roadType.includes('Paved')) return 'paved';
-    return 'unknown';
-  };
-
   const processImage = async () => {
     if (!selectedFile || !previewUrl) return;
 
@@ -81,37 +70,6 @@ export default function ImageUploadSection() {
       const result = await processRoadDetection(previewUrl, 'image', undefined, true);
       setDetectionResult(result);
 
-      // Store in backend - create proper Uint8Array<ArrayBuffer>
-      const originalBuffer = new ArrayBuffer(result.originalImageData.length);
-      const originalView = new Uint8Array(originalBuffer);
-      originalView.set(result.originalImageData);
-      const originalBlob = ExternalBlob.fromBytes(originalView);
-
-      const processedBuffer = new ArrayBuffer(result.processedImageData.length);
-      const processedView = new Uint8Array(processedBuffer);
-      processedView.set(result.processedImageData);
-      const processedBlob = ExternalBlob.fromBytes(processedView);
-
-      await storeDetection.mutateAsync({
-        id: result.id,
-        image: originalBlob,
-        processedImage: processedBlob,
-        confidenceScore: result.confidenceScore,
-        processingTime: BigInt(result.processingTime),
-        timestamp: BigInt(Date.now() * 1000000),
-        lighting: result.environmentalConditions.lighting,
-        weather: result.environmentalConditions.weather,
-        roadType: result.roadType,
-        surfaceType: deriveSurfaceType(result.roadType),
-        frameRate: result.metrics.frameRate,
-        detectionQuality: result.metrics.detectionQuality,
-        objectDetection: result.metrics.objectDetection,
-        hardwareType: result.metrics.hardwareAcceleration || 'standard',
-        cpuUtilization: result.metrics.cpuUtilization ? parseFloat(result.metrics.cpuUtilization) : 0,
-        gpuUtilization: 0,
-        memoryUsage: 0,
-      });
-
       // Store obstacle detection results
       if (result.obstacleDetection && result.obstacleDetection.obstacles.length > 0) {
         for (const obstacle of result.obstacleDetection.obstacles) {
@@ -119,6 +77,21 @@ export default function ImageUploadSection() {
           const obstacleView = new Uint8Array(obstacleBuffer);
           obstacleView.set(result.obstacleDetection.visualizationData);
           const obstacleBlob = ExternalBlob.fromBytes(obstacleView);
+
+          // Map obstacle type to backend enum
+          let objectType: ObjectType;
+          if (obstacle.type === 'Vehicle') {
+            objectType = ObjectType.vehicle;
+          } else if (obstacle.type === 'Pedestrian') {
+            objectType = ObjectType.pedestrian;
+          } else if (obstacle.type === 'Debris/Obstacle') {
+            objectType = ObjectType.debris;
+          } else {
+            objectType = ObjectType.unknown_;
+          }
+
+          // Default to static for image uploads (no motion tracking)
+          const motion = MotionType.static_;
 
           await storeObstacleEvent.mutateAsync({
             id: obstacle.id,
@@ -129,18 +102,10 @@ export default function ImageUploadSection() {
             associatedDetectionId: result.id,
             image: obstacleBlob,
             riskLevel: obstacle.riskLevel,
-          });
-        }
-
-        // Store emergency events
-        for (const emergency of result.obstacleDetection.emergencyConditions) {
-          await storeEmergencyEvent.mutateAsync({
-            id: emergency.id,
-            type: emergency.type,
-            timestamp: BigInt(Date.now() * 1000000),
-            associatedDetectionId: result.id,
-            description: emergency.description,
-            severity: emergency.severity,
+            classification: {
+              objectType,
+              motion,
+            },
           });
         }
       }
@@ -163,7 +128,7 @@ export default function ImageUploadSection() {
             Upload Road Image
           </CardTitle>
           <CardDescription>
-            Upload an image to detect road regions and obstacles with ML-powered analysis
+            Upload an image to detect road regions, obstacles, and surface features with ML-powered analysis
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -230,7 +195,7 @@ export default function ImageUploadSection() {
             ) : (
               <>
                 <ImageIcon className="mr-2 h-5 w-5" />
-                Detect Road & Obstacles
+                Detect Road & Surface Features
               </>
             )}
           </Button>

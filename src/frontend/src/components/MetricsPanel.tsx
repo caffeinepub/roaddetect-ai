@@ -1,30 +1,44 @@
-import { Activity, Gauge, Clock, Eye, Cloud, Sun, Droplets, Wind, Zap, Cpu, Monitor } from 'lucide-react';
+import { Activity, Zap, Gauge, Eye, Cloud, Droplets, Sun, Moon, Wind, Construction } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import type { DetectionMetrics, EnvironmentalConditions, RoadSurfaceFeatures } from '@/types/detection';
 
 interface MetricsPanelProps {
-  metrics: {
-    confidenceScore: number;
-    processingTime: number;
-    frameRate?: number;
-    detectionQuality: number;
-    environmentalConditions: {
-      lighting: string;
-      weather: string;
-    };
-    roadType: string;
-    objectDetection: string;
-    mlAdaptations?: string[];
-    performanceStatus?: string;
-    hardwareAcceleration?: string;
-    cpuUtilization?: string;
-    processingMode?: string;
-    realTimeFPS?: number;
-  };
-  isLive?: boolean;
+  confidenceScore: number;
+  processingTime: number;
+  metrics: DetectionMetrics;
+  environmentalConditions: EnvironmentalConditions;
+  roadType: string;
+  roadSurfaceFeatures?: RoadSurfaceFeatures;
 }
 
-export default function MetricsPanel({ metrics, isLive = false }: MetricsPanelProps) {
+export default function MetricsPanel({
+  confidenceScore,
+  processingTime,
+  metrics,
+  environmentalConditions,
+  roadType,
+  roadSurfaceFeatures,
+}: MetricsPanelProps) {
+  const getConfidenceColor = (score: number) => {
+    if (score >= 0.8) return 'text-success';
+    if (score >= 0.6) return 'text-warning';
+    return 'text-destructive';
+  };
+
+  const getPerformanceColor = (time: number) => {
+    if (time < 100) return 'text-success';
+    if (time < 200) return 'text-warning';
+    return 'text-destructive';
+  };
+
+  const getLightingIcon = (lighting: string) => {
+    if (lighting === 'Night' || lighting === 'Dusk') return <Moon className="h-4 w-4" />;
+    if (lighting === 'Bright') return <Sun className="h-4 w-4" />;
+    return <Sun className="h-4 w-4" />;
+  };
+
   const getWeatherIcon = (weather: string) => {
     if (weather.includes('Fog')) return <Cloud className="h-4 w-4" />;
     if (weather.includes('Rain')) return <Droplets className="h-4 w-4" />;
@@ -32,204 +46,187 @@ export default function MetricsPanel({ metrics, isLive = false }: MetricsPanelPr
     return <Wind className="h-4 w-4" />;
   };
 
-  const getConfidenceColor = (score: number) => {
-    if (score >= 0.85) return 'text-chart-1';
-    if (score >= 0.7) return 'text-chart-2';
-    return 'text-chart-3';
-  };
-
-  const getQualityColor = (quality: number) => {
-    if (quality >= 0.85) return 'text-chart-1';
-    if (quality >= 0.7) return 'text-chart-2';
-    return 'text-chart-3';
-  };
-
-  // Normalize object detection string to show explicit "No objects detected" message
-  const normalizeObjectDetection = (detection: string): string => {
-    const lowerDetection = detection.toLowerCase().trim();
-    if (
-      lowerDetection === '' ||
-      lowerDetection === 'none' ||
-      lowerDetection === 'clear' ||
-      lowerDetection === 'clear road' ||
-      lowerDetection === 'no objects'
-    ) {
-      return 'No objects detected';
-    }
-    return detection;
-  };
+  const potholeCount = metrics.potholeCount || 0;
+  const closestPotholeDistance = metrics.closestPotholeDistance;
 
   return (
-    <Card className="card-enhanced">
-      <CardHeader>
+    <Card className="border-primary/20 bg-gradient-to-br from-background to-primary/5">
+      <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Activity className="h-5 w-5 text-primary" />
           Detection Metrics
-          {isLive && (
-            <Badge variant="default" className="ml-auto animate-pulse-glow">
-              Live
-            </Badge>
-          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Hardware Performance Status */}
-        {(metrics.hardwareAcceleration || metrics.cpuUtilization || metrics.processingMode) && (
-          <div className="space-y-2">
-            <h4 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-              <Monitor className="h-4 w-4" />
-              Hardware Performance
-            </h4>
-            <div className="space-y-2">
-              {metrics.hardwareAcceleration && (
-                <div className="rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-3 shadow-inner">
-                  <div className="flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-primary" />
-                    <div className="flex-1">
-                      <p className="text-xs text-muted-foreground">Hardware Acceleration</p>
-                      <p className="text-sm font-medium text-primary">{metrics.hardwareAcceleration}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {metrics.cpuUtilization && (
-                <div className="rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-3 shadow-inner">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="h-4 w-4 text-primary" />
-                    <div className="flex-1">
-                      <p className="text-xs text-muted-foreground">CPU Utilization</p>
-                      <p className="text-sm font-medium text-primary">{metrics.cpuUtilization}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {metrics.processingMode && (
-                <div className="rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-3 shadow-inner">
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-primary" />
-                    <div className="flex-1">
-                      <p className="text-xs text-muted-foreground">Processing Mode</p>
-                      <p className="text-sm font-medium text-primary">{metrics.processingMode}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Performance Status */}
-        {metrics.performanceStatus && (
-          <div className="rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-4 shadow-inner">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium text-primary">
-                {metrics.performanceStatus}
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* Core Metrics */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-xl bg-gradient-to-br from-background to-muted/30 p-3 shadow-sm transition-all duration-300 hover:shadow-md">
-            <div className="flex items-center gap-2">
-              <Gauge className={`h-4 w-4 ${getConfidenceColor(metrics.confidenceScore)}`} />
-              <span className="text-sm font-medium">Confidence</span>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <div className="text-xs text-muted-foreground">Confidence</div>
+            <div className={`text-2xl font-bold ${getConfidenceColor(confidenceScore)}`}>
+              {(confidenceScore * 100).toFixed(0)}%
             </div>
-            <span className={`text-lg font-bold ${getConfidenceColor(metrics.confidenceScore)}`}>
-              {(metrics.confidenceScore * 100).toFixed(1)}%
-            </span>
+            <Progress value={confidenceScore * 100} className="h-1.5" />
           </div>
 
-          <div className="flex items-center justify-between rounded-xl bg-gradient-to-br from-background to-muted/30 p-3 shadow-sm transition-all duration-300 hover:shadow-md">
-            <div className="flex items-center gap-2">
-              <Eye className={`h-4 w-4 ${getQualityColor(metrics.detectionQuality)}`} />
-              <span className="text-sm font-medium">Quality</span>
+          <div className="space-y-1">
+            <div className="text-xs text-muted-foreground">Processing</div>
+            <div className={`text-2xl font-bold ${getPerformanceColor(processingTime)}`}>
+              {processingTime}ms
             </div>
-            <span className={`text-lg font-bold ${getQualityColor(metrics.detectionQuality)}`}>
-              {(metrics.detectionQuality * 100).toFixed(1)}%
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl bg-gradient-to-br from-background to-muted/30 p-3 shadow-sm transition-all duration-300 hover:shadow-md">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Processing Time</span>
+            <div className="text-xs text-muted-foreground">
+              {metrics.realTimeFPS ? `${metrics.realTimeFPS.toFixed(1)} FPS` : `${metrics.frameRate.toFixed(1)} FPS`}
             </div>
-            <span className="text-lg font-bold">{metrics.processingTime}ms</span>
           </div>
+        </div>
 
-          {isLive && metrics.realTimeFPS !== undefined && metrics.realTimeFPS > 0 && (
-            <div className="flex items-center justify-between rounded-xl bg-gradient-to-br from-background to-muted/30 p-3 shadow-sm transition-all duration-300 hover:shadow-md">
-              <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">Real-time FPS</span>
+        {/* Pothole Detection Metrics */}
+        {potholeCount > 0 && (
+          <div className="p-3 rounded-lg bg-warning/10 border border-warning/30">
+            <div className="flex items-center gap-2 mb-2">
+              <Construction className="h-4 w-4 text-warning" />
+              <span className="text-sm font-semibold text-warning">Pothole Detection</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Count</div>
+                <div className="font-bold text-warning">{potholeCount}</div>
               </div>
-              <span className="text-lg font-bold text-primary">{metrics.realTimeFPS.toFixed(1)}</span>
+              {closestPotholeDistance !== undefined && closestPotholeDistance <= 50 && (
+                <div>
+                  <div className="text-xs text-muted-foreground">Closest</div>
+                  <div className="font-bold text-warning">{closestPotholeDistance.toFixed(0)}m</div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
-          {isLive && metrics.frameRate !== undefined && (
-            <div className="flex items-center justify-between rounded-xl bg-gradient-to-br from-background to-muted/30 p-3 shadow-sm transition-all duration-300 hover:shadow-md">
-              <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Processing Rate</span>
-              </div>
-              <span className="text-lg font-bold">{metrics.frameRate.toFixed(1)} FPS</span>
+        {/* Hardware Performance */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Zap className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">Hardware Performance</span>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Status:</span>
+              <Badge variant="outline" className="text-xs">
+                {metrics.performanceStatus || 'Processing'}
+              </Badge>
             </div>
-          )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Acceleration:</span>
+              <span className="font-medium">{metrics.hardwareAcceleration || 'Standard'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">CPU:</span>
+              <span className="font-medium">{metrics.cpuUtilization || 'Moderate'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Mode:</span>
+              <span className="font-medium">{metrics.processingMode || 'Balanced'}</span>
+            </div>
+          </div>
         </div>
 
         {/* Environmental Conditions */}
         <div className="space-y-2">
-          <h4 className="text-sm font-semibold text-muted-foreground">Environmental Conditions</h4>
+          <div className="flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">Environment</span>
+          </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="flex items-center gap-2 rounded-lg bg-gradient-to-br from-primary/5 to-accent/5 p-2.5 shadow-sm">
-              <Sun className="h-4 w-4 text-primary" />
+            <div className="flex items-center gap-2 text-xs">
+              {getLightingIcon(environmentalConditions.lighting)}
               <div>
-                <p className="text-xs text-muted-foreground">Lighting</p>
-                <p className="text-sm font-medium">{metrics.environmentalConditions.lighting}</p>
+                <div className="text-muted-foreground">Lighting</div>
+                <div className="font-medium">{environmentalConditions.lighting}</div>
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-lg bg-gradient-to-br from-primary/5 to-accent/5 p-2.5 shadow-sm">
-              {getWeatherIcon(metrics.environmentalConditions.weather)}
+            <div className="flex items-center gap-2 text-xs">
+              {getWeatherIcon(environmentalConditions.weather)}
               <div>
-                <p className="text-xs text-muted-foreground">Weather</p>
-                <p className="text-sm font-medium">{metrics.environmentalConditions.weather}</p>
+                <div className="text-muted-foreground">Weather</div>
+                <div className="font-medium">{environmentalConditions.weather}</div>
               </div>
             </div>
           </div>
+
+          {environmentalConditions.visibility !== undefined && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Eye className="h-3 w-3" />
+                  Visibility
+                </span>
+                <span className="font-medium">{(environmentalConditions.visibility * 100).toFixed(0)}%</span>
+              </div>
+              <Progress value={environmentalConditions.visibility * 100} className="h-1" />
+            </div>
+          )}
         </div>
 
-        {/* Road Information - Enhanced with clearer hierarchy */}
-        <div className="space-y-2">
-          <h4 className="text-sm font-semibold text-muted-foreground">Road Information</h4>
-          <div className="space-y-2">
-            <div className="rounded-lg bg-gradient-to-br from-background to-muted/30 p-3 shadow-sm">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Road Type</p>
-              <p className="text-base font-semibold text-foreground">{metrics.roadType}</p>
+        {/* Road Surface Analysis */}
+        {roadSurfaceFeatures && (
+          <div className="space-y-2 pt-2 border-t border-border/50">
+            <div className="text-sm font-medium">Road Surface Analysis</div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Coverage:</span>
+                <span className="font-medium">{(roadSurfaceFeatures.segmentation.coverage * 100).toFixed(0)}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Drivable Area:</span>
+                <span className="font-medium">{(roadSurfaceFeatures.drivableArea.coverage * 100).toFixed(0)}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Edge Strength:</span>
+                <span className="font-medium">{roadSurfaceFeatures.roadEdges.edgeStrength.toFixed(2)}</span>
+              </div>
+              {roadSurfaceFeatures.damage.potholeScore > 0.3 && (
+                <div className="flex justify-between text-warning">
+                  <span>Damage Detected:</span>
+                  <span className="font-medium">{(roadSurfaceFeatures.damage.potholeScore * 100).toFixed(0)}%</span>
+                </div>
+              )}
+              {roadSurfaceFeatures.wetSurface.wetnessScore > 0.4 && (
+                <div className="flex justify-between text-info">
+                  <span>Wet Surface:</span>
+                  <span className="font-medium">{(roadSurfaceFeatures.wetSurface.wetnessScore * 100).toFixed(0)}%</span>
+                </div>
+              )}
             </div>
-            <div className="rounded-lg bg-gradient-to-br from-background to-muted/30 p-3 shadow-sm">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Objects Detected</p>
-              <p className="text-base font-semibold text-foreground">{normalizeObjectDetection(metrics.objectDetection)}</p>
+          </div>
+        )}
+
+        {/* Detection Quality */}
+        <div className="space-y-2 pt-2 border-t border-border/50">
+          <div className="text-sm font-medium">Detection Quality</div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Quality Score:</span>
+              <span className="font-medium">{(metrics.detectionQuality * 100).toFixed(0)}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Road Type:</span>
+              <Badge variant="secondary" className="text-xs">{roadType}</Badge>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Objects:</span>
+              <span className="font-medium">{metrics.objectDetection}</span>
             </div>
           </div>
         </div>
 
         {/* ML Adaptations */}
         {metrics.mlAdaptations && metrics.mlAdaptations.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="text-sm font-semibold text-muted-foreground">ML Adaptations Applied</h4>
-            <div className="space-y-1.5">
+          <div className="space-y-2 pt-2 border-t border-border/50">
+            <div className="text-sm font-medium">Active Adaptations</div>
+            <div className="flex flex-wrap gap-1">
               {metrics.mlAdaptations.map((adaptation, index) => (
-                <div
-                  key={index}
-                  className="flex items-center gap-2 rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 p-2 shadow-sm"
-                >
-                  <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  <span className="text-xs font-medium text-primary">{adaptation}</span>
-                </div>
+                <Badge key={index} variant="outline" className="text-xs">
+                  {adaptation}
+                </Badge>
               ))}
             </div>
           </div>

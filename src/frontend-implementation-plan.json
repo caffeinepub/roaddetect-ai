@@ -1,83 +1,137 @@
 {
   "kind": "implementation_plan",
   "version": "1.0",
-  "title": "Driver alert color coding, clearer road metrics, and improved curved-road segmentation",
+  "title": "Add pothole detection with 50-meter advance alert",
   "requirements": [
     {
       "id": "REQ-1",
-      "summary": "Update Driver Alerts UI so safe/normal states are green and any warning/danger/critical states are red, applied consistently across the panel.",
+      "summary": "Extend the road detection algorithm to identify potholes on the road surface using visual analysis of road texture, depth discontinuities, and surface irregularities",
       "acceptanceCriteria": [
-        "When there are no alerts (no obstacles, no emergency conditions, and not overspeed), the DriverAlertPanel “No alerts / All systems normal” state is visually styled as safe (green text/accent/background).",
-        "Any warning/danger state (including: speed limit exceeded, Warning emergencies, Moderate/High risk obstacles, Critical emergencies) is visually styled with red as the primary status color (not teal/yellow).",
-        "The updated colors are applied consistently across the DriverAlertPanel elements (headings/labels/badges/borders) without reducing readability in light and dark themes."
-      ],
-      "file_operations": [
-        {
-          "path": "frontend/src/components/DriverAlertPanel.tsx",
-          "operation": "modify",
-          "description": "Adjust status styling logic and Tailwind classes so the no-alert state uses green (safe) accents, and all alert severities (overspeed, warning emergencies, moderate/high-risk obstacles, critical emergencies) use red as the primary status color across headings, badges, borders, and backgrounds."
-        },
-        {
-          "path": "frontend/src/components/LiveCameraSection.tsx",
-          "operation": "modify",
-          "description": "Ensure the DriverAlertPanel continues to read clearly in live mode alongside other status badges; make any necessary small class adjustments around the panel container to preserve readability and visual contrast after the alert color changes."
-        },
-        {
-          "path": "frontend/src/components/DetectionResults.tsx",
-          "operation": "modify",
-          "description": "Update the non-live DriverAlertPanel embedding to maintain consistent visual spacing and readability with the updated red/green status styling (no behavior changes; just ensure layout remains consistent after the UI update)."
-        }
-      ]
-    },
-    {
-      "id": "REQ-2",
-      "summary": "Make the Detection Metrics “Road Information” section easier to scan and explicitly indicate when no objects are detected, without breaking existing props usage in live/non-live modes.",
-      "acceptanceCriteria": [
-        "The ‘Road Information’ area clearly displays road type and object detection status with stronger visual hierarchy (labels vs values) than the current layout.",
-        "When the object detection result is empty/none/clear, the UI explicitly shows a clear 'No objects detected' (or equivalent) message rather than only relying on ambiguous text.",
-        "The metrics presentation remains compatible with both live and non-live modes and does not break existing MetricsPanel props usage."
-      ],
-      "file_operations": [
-        {
-          "path": "frontend/src/components/MetricsPanel.tsx",
-          "operation": "modify",
-          "description": "Refactor the “Road Information” subsection to improve label/value hierarchy (e.g., stronger value emphasis and clearer grouping) and normalize the object detection string so empty/none/clear-road-like values render an explicit 'No objects detected' message; keep the existing MetricsPanel props contract intact for both live and non-live usage."
-        },
-        {
-          "path": "frontend/src/components/LiveCameraSection.tsx",
-          "operation": "modify",
-          "description": "Confirm live-mode metric values passed into MetricsPanel still align with the updated Road Information display expectations (e.g., objectDetection string variants) and adjust only the caller-side mapping if needed to avoid ambiguous 'clear' messaging."
-        },
-        {
-          "path": "frontend/src/components/DetectionResults.tsx",
-          "operation": "modify",
-          "description": "Confirm non-live (image upload) metric values passed into MetricsPanel still render the improved Road Information hierarchy and the explicit 'No objects detected' message when appropriate; adjust only the passed text values if needed while preserving existing props shape."
-        }
-      ]
-    },
-    {
-      "id": "REQ-3",
-      "summary": "Improve the road segmentation pipeline to better preserve curved road continuity, remove non-determinism, and fix morphology post-processing to correctly handle non-square images.",
-      "acceptanceCriteria": [
-        "Road masks produced by the road detection pipeline show improved continuity along curved road boundaries compared to the current behavior.",
-        "Remove or significantly reduce sources of non-determinism in road mask generation that can cause inconsistent road coverage between runs on the same image/frame.",
-        "Fix any mask post-processing issues that assume a square image (e.g., morphology operations using sqrt(length)) so morphology works correctly for arbitrary width/height inputs."
+        "Pothole detection is integrated into the existing roadDetection.ts module",
+        "Detection results include pothole locations with bounding boxes or polygons",
+        "Potholes are visually highlighted in detection result overlays"
       ],
       "file_operations": [
         {
           "path": "frontend/src/lib/roadDetection.ts",
           "operation": "modify",
-          "description": "Update the road region segmentation and post-processing to improve curved-road continuity (e.g., more continuity-preserving mask growth/closing along boundaries), remove non-deterministic behavior (eliminate Math.random-driven mask and confidence variability), and refactor morphology helpers (dilate/erode/close) to operate with explicit width/height rather than sqrt(length) so non-square frames are handled correctly."
+          "description": "Add pothole detection capability to the existing road detection algorithm. Implement visual analysis of road texture, depth discontinuities, and surface irregularities to identify potholes. Return pothole locations with bounding boxes/polygons in the detection results. Verify the camera component's usage instructions before implementing."
+        },
+        {
+          "path": "frontend/src/types/detection.ts",
+          "operation": "modify",
+          "description": "Extend DetectionResult interface to include pothole detection data with locations, bounding boxes, confidence scores, and estimated distances. Add PotholeDetection type with properties for position, size, severity, and distance estimation."
+        },
+        {
+          "path": "frontend/src/components/DetectionResults.tsx",
+          "operation": "modify",
+          "description": "Add visual overlay rendering for detected potholes. Display bounding boxes or polygons highlighting pothole locations on the detection result images. Include pothole markers with severity indicators in the visualization tabs."
+        }
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "summary": "Calculate estimated distance to detected potholes based on camera perspective, road geometry, and pixel position in the frame",
+      "acceptanceCriteria": [
+        "Distance estimation uses perspective projection or similar technique",
+        "Each detected pothole includes an estimated distance in meters",
+        "Distance calculations are performed in real-time during detection"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/lib/roadDetection.ts",
+          "operation": "modify",
+          "description": "Implement distance estimation logic using perspective projection based on camera geometry and pixel position. Calculate estimated distance in meters for each detected pothole using the vertical position in the frame and assumed road plane geometry. Integrate distance calculations into the pothole detection pipeline for real-time operation."
+        },
+        {
+          "path": "frontend/src/types/detection.ts",
+          "operation": "modify",
+          "description": "Add distance field to pothole detection data structure. Include estimated distance in meters as a required property for each detected pothole."
+        }
+      ]
+    },
+    {
+      "id": "REQ-3",
+      "summary": "Trigger audio and visual alerts when potholes are detected within 50 meters, displaying 'Potholes on road' warning message",
+      "acceptanceCriteria": [
+        "Alert is triggered only when detected potholes are 50 meters or closer",
+        "Alert message displays 'Potholes on road' text prominently",
+        "Audio alert plays using the existing alert sound system",
+        "Alert integrates with DriverAlertPanel component for consistent UI"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/DriverAlertPanel.tsx",
+          "operation": "modify",
+          "description": "Add pothole alert logic to trigger visual and audio warnings when potholes are detected within 50 meters. Display 'Potholes on road' warning message prominently. Integrate with existing alert throttling mechanism to prevent alert spam. Play audio alert using the existing sound system with appropriate risk level classification."
         },
         {
           "path": "frontend/src/components/LiveCameraSection.tsx",
           "operation": "modify",
-          "description": "Validate that live processing continues to call the updated road detection pipeline correctly for arbitrary video frame sizes, and adjust any assumptions in the live rendering flow if needed to match the updated deterministic outputs."
+          "description": "Pass pothole detection results with distance information to DriverAlertPanel. Trigger alerts when any pothole is detected within the 50-meter threshold during real-time camera processing."
         },
         {
           "path": "frontend/src/components/ImageUploadSection.tsx",
           "operation": "modify",
-          "description": "Validate that image-mode processing still works correctly with the updated road detection pipeline changes (especially for non-square uploads) and adjust any caller-side assumptions only if needed; keep the existing UI and persistence flow intact."
+          "description": "Pass pothole detection results with distance information to DriverAlertPanel for uploaded images. Enable pothole alerts when processing static images."
+        }
+      ]
+    },
+    {
+      "id": "REQ-4",
+      "summary": "Add pothole detection results to the backend ObstacleEvent storage, including pothole type classification, location coordinates, and distance information",
+      "acceptanceCriteria": [
+        "Backend canister supports storing pothole events with type, position, and distance",
+        "Frontend stores pothole detections using useQueries hooks",
+        "Pothole events are retrievable in SystemOverviewPanel statistics",
+        "Detection history includes pothole entries"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/hooks/useQueries.ts",
+          "operation": "modify",
+          "description": "Add hook for storing pothole-specific events using the backend addPotholeSpecificEvent method. Map frontend pothole detection data to PotholeDetails structure including potholeType, distance_from_vehicle, severity, depth, size, location coordinates, and image_url. Include proper error handling and query invalidation. Verify the blob-storage component's usage instructions before implementing for handling pothole images."
+        },
+        {
+          "path": "frontend/src/components/LiveCameraSection.tsx",
+          "operation": "modify",
+          "description": "Call the pothole storage hook when potholes are detected during live camera processing. Store pothole events with full classification data, distance, and captured frame images to backend using the addPotholeSpecificEvent method."
+        },
+        {
+          "path": "frontend/src/components/ImageUploadSection.tsx",
+          "operation": "modify",
+          "description": "Call the pothole storage hook when potholes are detected in uploaded images. Store pothole events with full classification data, distance, and source images to backend."
+        }
+      ]
+    },
+    {
+      "id": "REQ-5",
+      "summary": "Display detected potholes in the MetricsPanel with count and closest distance information",
+      "acceptanceCriteria": [
+        "MetricsPanel shows total pothole count in current frame",
+        "Distance to closest pothole is displayed when within 50 meters",
+        "Pothole metrics update in real-time during live camera detection"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/MetricsPanel.tsx",
+          "operation": "modify",
+          "description": "Add pothole metrics section displaying total count of detected potholes in current frame. Show distance to closest pothole when any are detected within 50 meters. Update pothole metrics in real-time as detection results arrive. Include visual indicators for pothole severity if available."
+        },
+        {
+          "path": "frontend/src/types/detection.ts",
+          "operation": "modify",
+          "description": "Extend DetectionMetrics interface to include potholeCount and closestPotholeDistance fields for tracking pothole detection statistics."
+        },
+        {
+          "path": "frontend/src/components/LiveCameraSection.tsx",
+          "operation": "modify",
+          "description": "Pass pothole detection metrics (count and closest distance) to MetricsPanel for real-time display during live camera processing."
+        },
+        {
+          "path": "frontend/src/components/ImageUploadSection.tsx",
+          "operation": "modify",
+          "description": "Pass pothole detection metrics to MetricsPanel when processing uploaded images."
         }
       ]
     }

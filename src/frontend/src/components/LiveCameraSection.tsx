@@ -8,11 +8,13 @@ import { toast } from 'sonner';
 import { useCamera } from '@/camera/useCamera';
 import { processRoadDetection } from '@/lib/roadDetection';
 import { detectSpeedLimit } from '@/lib/speedLimitDetection';
+import { trackObstacles, initializeTrackingState, type TrackingState } from '@/lib/obstacleTracking';
 import MetricsPanel from './MetricsPanel';
 import DriverAlertPanel from './DriverAlertPanel';
 import SpeedLimitDisplay from './SpeedLimitDisplay';
-import { useStoreObstacleEvent, useStoreEmergencyEvent, useStoreSpeedLimitDetection } from '@/hooks/useQueries';
-import { ExternalBlob } from '@/backend';
+import { useStoreObstacleEvent, useStorePotholeEvent } from '@/hooks/useQueries';
+import { ExternalBlob, MotionType, ObjectType, PotholeType } from '@/backend';
+import type { DetectionMetrics, EnvironmentalConditions, RoadSurfaceFeatures, ObstacleInfo, EmergencyCondition, PotholeDetection } from '@/types/detection';
 
 interface LiveCameraSectionProps {
   isActive?: boolean;
@@ -21,6 +23,24 @@ interface LiveCameraSectionProps {
 
 type CameraStatus = 'idle' | 'initializing' | 'requesting-permission' | 'active' | 'error' | 'denied';
 type SystemStatus = 'idle' | 'initializing' | 'ready' | 'active' | 'error';
+
+interface LiveMetrics {
+  confidenceScore: number;
+  processingTime: number;
+  frameRate: number;
+  detectionQuality: number;
+  environmentalConditions: EnvironmentalConditions;
+  roadType: string;
+  objectDetection: string;
+  mlAdaptations?: string[];
+  performanceStatus?: string;
+  hardwareAcceleration?: string;
+  cpuUtilization?: string;
+  processingMode?: string;
+  realTimeFPS: number;
+  potholeCount?: number;
+  closestPotholeDistance?: number;
+}
 
 export default function LiveCameraSection({ isActive: isTabActive = false, autoStart = false }: LiveCameraSectionProps) {
   const {
@@ -37,9 +57,11 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
   } = useCamera({ facingMode: 'environment' });
 
   const [isDetecting, setIsDetecting] = useState(false);
-  const [metrics, setMetrics] = useState<any>(null);
-  const [obstacles, setObstacles] = useState<any[]>([]);
-  const [emergencyConditions, setEmergencyConditions] = useState<any[]>([]);
+  const [metrics, setMetrics] = useState<LiveMetrics | null>(null);
+  const [roadSurfaceFeatures, setRoadSurfaceFeatures] = useState<RoadSurfaceFeatures | undefined>(undefined);
+  const [obstacles, setObstacles] = useState<ObstacleInfo[]>([]);
+  const [potholes, setPotholes] = useState<PotholeDetection[]>([]);
+  const [emergencyConditions, setEmergencyConditions] = useState<EmergencyCondition[]>([]);
   const [detectedSpeedLimit, setDetectedSpeedLimit] = useState<number | null>(null);
   const [speedLimitConfidence, setSpeedLimitConfidence] = useState<number>(0);
   const [currentSpeed, setCurrentSpeed] = useState<number>(0);
@@ -48,7 +70,15 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
   const [systemStatus, setSystemStatus] = useState<SystemStatus>('idle');
   const [autoStartAttempted, setAutoStartAttempted] = useState(false);
   const [realTimeFPS, setRealTimeFPS] = useState<number>(0);
-  const [detectionCount, setDetectionCount] = useState({ obstacles: 0, speedLimits: 0, emergencies: 0 });
+  const [detectionCount, setDetectionCount] = useState({ 
+    obstacles: 0, 
+    speedLimits: 0, 
+    emergencies: 0,
+    vehicles: 0,
+    pedestrians: 0,
+    debris: 0,
+    potholes: 0,
+  });
   const [errorDetails, setErrorDetails] = useState<string>('');
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
@@ -56,9 +86,9 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
   const frameCountRef = useRef<number>(0);
   const performanceMetricsRef = useRef({ avgFrameTime: 0, frameCount: 0 });
   const fpsCounterRef = useRef({ frames: 0, lastTime: performance.now() });
+  const trackingStateRef = useRef<TrackingState>(initializeTrackingState());
   const storeObstacleEvent = useStoreObstacleEvent();
-  const storeEmergencyEvent = useStoreEmergencyEvent();
-  const storeSpeedLimitDetection = useStoreSpeedLimitDetection();
+  const storePotholeEvent = useStorePotholeEvent();
   const lastDetectionIdRef = useRef<string>('');
   const lastSpeedLimitDetectionRef = useRef<number>(0);
 
@@ -187,6 +217,7 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
         frameCountRef.current = 0;
         performanceMetricsRef.current = { avgFrameTime: 0, frameCount: 0 };
         fpsCounterRef.current = { frames: 0, lastTime: performance.now() };
+        trackingStateRef.current = initializeTrackingState();
         
         toast.info('Live Monitoring Active', {
           description: 'Real-time road detection is now running',
@@ -312,7 +343,18 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
         performanceMetricsRef.current.avgFrameTime = 
           performanceMetricsRef.current.avgFrameTime * 0.9 + processingTime * 0.1;
         
+        // Extract potholes from road surface features
+        const detectedPotholes = result.roadSurfaceFeatures?.potholes?.detections || [];
+        setPotholes(detectedPotholes);
+
         if (result.obstacleDetection) {
+          // Track obstacles across frames for motion classification
+          const { trackedObstacles, newState } = trackObstacles(
+            result.obstacleDetection.obstacles,
+            trackingStateRef.current
+          );
+          trackingStateRef.current = newState;
+
           const img = new Image();
           img.decoding = 'async';
           img.onload = () => {
@@ -321,20 +363,41 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
           };
           img.src = result.obstacleDetection.visualizationUrl;
 
-          setObstacles(result.obstacleDetection.obstacles);
+          setObstacles(trackedObstacles);
           setEmergencyConditions(result.obstacleDetection.emergencyConditions);
 
-          if (result.obstacleDetection.obstacles.length > 0 && result.id !== lastDetectionIdRef.current) {
+          if (trackedObstacles.length > 0 && result.id !== lastDetectionIdRef.current) {
             lastDetectionIdRef.current = result.id;
             
             let obstacleCount = 0;
-            let emergencyCount = 0;
+            let emergencyCount = result.obstacleDetection.emergencyConditions.length;
+            let vehicleCount = 0;
+            let pedestrianCount = 0;
+            let debrisCount = 0;
 
-            result.obstacleDetection.obstacles.forEach(async (obstacle) => {
+            trackedObstacles.forEach(async (obstacle) => {
               const obstacleBuffer = new ArrayBuffer(result.obstacleDetection!.visualizationData.length);
               const obstacleView = new Uint8Array(obstacleBuffer);
               obstacleView.set(result.obstacleDetection!.visualizationData);
               const obstacleBlob = ExternalBlob.fromBytes(obstacleView);
+
+              // Map obstacle type to backend enum
+              let objectType: ObjectType;
+              if (obstacle.type === 'Vehicle') {
+                objectType = ObjectType.vehicle;
+                vehicleCount++;
+              } else if (obstacle.type === 'Pedestrian') {
+                objectType = ObjectType.pedestrian;
+                pedestrianCount++;
+              } else if (obstacle.type === 'Debris/Obstacle') {
+                objectType = ObjectType.debris;
+                debrisCount++;
+              } else {
+                objectType = ObjectType.unknown_;
+              }
+
+              // Map motion to backend enum
+              const motion = obstacle.motion === 'Moving' ? MotionType.moving : MotionType.static_;
 
               await storeObstacleEvent.mutateAsync({
                 id: obstacle.id,
@@ -345,28 +408,93 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
                 associatedDetectionId: result.id,
                 image: obstacleBlob,
                 riskLevel: obstacle.riskLevel,
+                classification: {
+                  objectType,
+                  motion,
+                },
               });
               obstacleCount++;
-            });
-
-            result.obstacleDetection.emergencyConditions.forEach(async (emergency) => {
-              await storeEmergencyEvent.mutateAsync({
-                id: emergency.id,
-                type: emergency.type,
-                timestamp: BigInt(Date.now() * 1000000),
-                associatedDetectionId: result.id,
-                description: emergency.description,
-                severity: emergency.severity,
-              });
-              emergencyCount++;
             });
 
             setDetectionCount(prev => ({
               obstacles: prev.obstacles + obstacleCount,
               speedLimits: prev.speedLimits,
               emergencies: prev.emergencies + emergencyCount,
+              vehicles: prev.vehicles + vehicleCount,
+              pedestrians: prev.pedestrians + pedestrianCount,
+              debris: prev.debris + debrisCount,
+              potholes: prev.potholes,
             }));
           }
+        }
+
+        // Store pothole events
+        if (detectedPotholes.length > 0 && result.id !== lastDetectionIdRef.current) {
+          let potholeCount = 0;
+
+          detectedPotholes.forEach(async (pothole) => {
+            const potholeBuffer = new ArrayBuffer(result.processedImageData.length);
+            const potholeView = new Uint8Array(potholeBuffer);
+            potholeView.set(result.processedImageData);
+            const potholeBlob = ExternalBlob.fromBytes(potholeView);
+
+            // Map pothole type to backend enum
+            let backendPotholeType: PotholeType;
+            switch (pothole.potholeType) {
+              case 'surface_cracks':
+                backendPotholeType = PotholeType.surface_cracks;
+                break;
+              case 'rough_size':
+                backendPotholeType = PotholeType.rough_size;
+                break;
+              case 'deep':
+                backendPotholeType = PotholeType.deep;
+                break;
+              case 'edge':
+                backendPotholeType = PotholeType.edge;
+                break;
+              case 'pavement':
+                backendPotholeType = PotholeType.pavement;
+                break;
+              case 'complex':
+                backendPotholeType = PotholeType.complex;
+                break;
+              default:
+                backendPotholeType = PotholeType.unknown_;
+            }
+
+            await storePotholeEvent.mutateAsync({
+              id: pothole.id,
+              position: pothole.position,
+              confidenceLevel: pothole.confidenceLevel,
+              timestamp: BigInt(Date.now() * 1000000),
+              associatedDetectionId: result.id,
+              image: potholeBlob,
+              riskLevel: {
+                level: pothole.severity,
+                description: `Pothole detected at ${pothole.distance.toFixed(0)}m`,
+              },
+              potholeDetails: {
+                size: pothole.size,
+                depth: pothole.depth,
+                severity: pothole.severity,
+                potholeType: backendPotholeType,
+                location: {
+                  coordinates: [pothole.position.x, pothole.position.y],
+                  accuracy: pothole.confidenceLevel,
+                },
+                image_url: result.processedImageUrl,
+                distance_from_vehicle: pothole.distance,
+                createdAt: BigInt(Date.now() * 1000000),
+              },
+            });
+            potholeCount++;
+          });
+
+          setDetectionCount(prev => ({
+            ...prev,
+            potholes: prev.potholes + potholeCount,
+          }));
         }
 
         const timeSinceLastSpeedDetection = currentTime - lastSpeedLimitDetectionRef.current;
@@ -380,20 +508,6 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
               setDetectedSpeedLimit(speedLimitResult.detectedSpeedLimit);
               setSpeedLimitConfidence(speedLimitResult.confidenceLevel);
               
-              const frameBuffer = new ArrayBuffer(speedLimitResult.visualizationData.length);
-              const frameView = new Uint8Array(frameBuffer);
-              frameView.set(speedLimitResult.visualizationData);
-              const frameBlob = ExternalBlob.fromBytes(frameView);
-              
-              await storeSpeedLimitDetection.mutateAsync({
-                id: `speed_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                detectedSpeedLimit: BigInt(speedLimitResult.detectedSpeedLimit),
-                confidenceLevel: speedLimitResult.confidenceLevel,
-                timestamp: BigInt(Date.now() * 1000000),
-                associatedDetectionId: result.id,
-                frameData: frameBlob,
-              });
-
               setDetectionCount(prev => ({
                 ...prev,
                 speedLimits: prev.speedLimits + 1,
@@ -422,570 +536,382 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
           cpuUtilization: result.metrics.cpuUtilization,
           processingMode: result.metrics.processingMode,
           realTimeFPS: realTimeFPS,
+          potholeCount: result.metrics.potholeCount,
+          closestPotholeDistance: result.metrics.closestPotholeDistance,
         });
+
+        setRoadSurfaceFeatures(result.roadSurfaceFeatures);
       } catch (error) {
         console.error('[Detection] Frame processing error:', error);
       }
     }
 
     animationFrameRef.current = requestAnimationFrame(processFrame);
-  }, [isDetecting, videoRef, storeObstacleEvent, storeEmergencyEvent, storeSpeedLimitDetection, realTimeFPS]);
+  }, [isDetecting, videoRef, storeObstacleEvent, storePotholeEvent, realTimeFPS]);
 
   const handleStartCamera = async () => {
-    console.log('[Camera] Manual start camera requested');
-    setSystemStatus('initializing');
+    console.log('[Camera] Manual start camera button clicked');
     setCameraStatus('initializing');
-    setErrorDetails('');
+    setSystemStatus('initializing');
     
     try {
-      console.log('[Camera] Calling startCamera()...');
-      
-      // Add timeout for camera initialization
-      const timeoutPromise = new Promise<boolean>((_, reject) => {
-        setTimeout(() => reject(new Error('Camera initialization timeout after 10 seconds')), 10000);
-      });
-      
-      const startPromise = startCamera();
-      const success = await Promise.race([startPromise, timeoutPromise]);
-      
+      const success = await startCamera();
       if (success) {
         console.log('[Camera] Camera started successfully');
-        setCameraStatus('active');
-        setSystemStatus('ready');
-        setErrorDetails('');
         toast.success('Camera Started', {
-          description: 'Camera is now active and ready',
+          description: 'Camera is now active',
         });
       } else {
-        console.error('[Camera] startCamera() returned false');
-        setCameraStatus('error');
-        setSystemStatus('error');
-        const errorMsg = 'Failed to start camera. Please check permissions and try again.';
-        setErrorDetails(errorMsg);
+        console.error('[Camera] Failed to start camera');
         toast.error('Camera Start Failed', {
-          description: errorMsg,
+          description: 'Could not start camera. Please check permissions.',
         });
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      console.error('[Camera] Camera start exception:', err);
-      setCameraStatus('error');
-      setSystemStatus('error');
-      setErrorDetails(`Camera error: ${errorMessage}`);
+      console.error('[Camera] Error starting camera:', err);
       toast.error('Camera Error', {
-        description: errorMessage,
+        description: err instanceof Error ? err.message : 'Unknown error',
       });
     }
   };
 
-  const handleRetryCamera = async () => {
-    console.log('[Camera] Retry camera requested');
-    setSystemStatus('initializing');
-    setCameraStatus('initializing');
-    setErrorDetails('');
-    setAutoStartAttempted(false);
+  const handleStopCamera = async () => {
+    console.log('[Camera] Stop camera button clicked');
     
-    try {
-      console.log('[Camera] Calling retry()...');
-      
-      // Add timeout for retry
-      const timeoutPromise = new Promise<boolean>((_, reject) => {
-        setTimeout(() => reject(new Error('Camera retry timeout after 10 seconds')), 10000);
-      });
-      
-      const retryPromise = retry();
-      const success = await Promise.race([retryPromise, timeoutPromise]);
-      
-      if (success) {
-        console.log('[Camera] Camera retry successful');
-        setCameraStatus('active');
-        setSystemStatus('ready');
-        setErrorDetails('');
-        toast.success('Camera Connected', {
-          description: 'Camera retry successful',
-        });
-      } else {
-        console.error('[Camera] retry() returned false');
-        setCameraStatus('error');
-        setSystemStatus('error');
-        const errorMsg = 'Failed to retry camera. Please check permissions and try again.';
-        setErrorDetails(errorMsg);
-        toast.error('Camera Retry Failed', {
-          description: errorMsg,
-        });
+    if (isDetecting) {
+      setIsDetecting(false);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = undefined;
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      console.error('[Camera] Camera retry exception:', err);
-      setCameraStatus('error');
-      setSystemStatus('error');
-      setErrorDetails(`Camera retry error: ${errorMessage}`);
-      toast.error('Camera Retry Error', {
-        description: errorMessage,
-      });
     }
+    
+    await stopCamera();
+    setCameraStatus('idle');
+    setSystemStatus('idle');
+    
+    toast.info('Camera Stopped', {
+      description: 'Camera has been deactivated',
+    });
   };
 
-  const handleStartDetection = async () => {
-    if (!isActive) {
-      console.log('[Detection] Camera not active, starting camera first...');
-      await handleStartCamera();
-      // Wait for camera to fully initialize
-      await new Promise(resolve => setTimeout(resolve, 500));
-      if (!isActive) {
-        console.error('[Detection] Camera failed to start, cannot begin detection');
-        return;
-      }
-    }
-    console.log('[Detection] Starting live detection...');
+  const handleStartDetection = () => {
+    console.log('[Camera] Start detection button clicked');
     setIsDetecting(true);
     setSystemStatus('active');
     frameCountRef.current = 0;
     performanceMetricsRef.current = { avgFrameTime: 0, frameCount: 0 };
     fpsCounterRef.current = { frames: 0, lastTime: performance.now() };
+    trackingStateRef.current = initializeTrackingState();
+    
+    toast.success('Detection Started', {
+      description: 'Real-time road detection is now active',
+    });
   };
 
   const handleStopDetection = () => {
-    console.log('[Detection] Stopping detection...');
+    console.log('[Camera] Stop detection button clicked');
     setIsDetecting(false);
     setSystemStatus('ready');
-    if (animationFrameRef.current !== undefined) {
+    
+    if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = undefined;
     }
-    setObstacles([]);
-    setEmergencyConditions([]);
-    setRealTimeFPS(0);
+    
+    toast.info('Detection Stopped', {
+      description: 'Real-time detection has been paused',
+    });
   };
 
-  const handleStopCamera = async () => {
-    console.log('[Camera] Stopping camera...');
-    handleStopDetection();
-    await stopCamera();
-    setCameraStatus('idle');
-    setSystemStatus('idle');
-    setAutoStartAttempted(false);
+  const handleRetry = async () => {
+    console.log('[Camera] Retry button clicked');
+    setCameraStatus('initializing');
+    setSystemStatus('initializing');
+    setErrorDetails('');
+    
+    try {
+      const success = await retry();
+      if (success) {
+        console.log('[Camera] Retry successful');
+        toast.success('Camera Reconnected', {
+          description: 'Camera is now active',
+        });
+      } else {
+        console.error('[Camera] Retry failed');
+        toast.error('Retry Failed', {
+          description: 'Could not reconnect to camera',
+        });
+      }
+    } catch (err) {
+      console.error('[Camera] Retry error:', err);
+      toast.error('Retry Error', {
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
   };
 
   useEffect(() => {
-    if (isDetecting && isActive) {
-      processFrame();
+    if (isDetecting) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
     }
+
     return () => {
-      if (animationFrameRef.current !== undefined) {
+      if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [isDetecting, isActive, processFrame]);
+  }, [isDetecting, processFrame]);
 
-  if (isSupported === false) {
-    return (
-      <Alert variant="destructive" className="animate-slide-in">
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>
-          <div className="space-y-2">
-            <p className="font-medium">Camera Not Supported</p>
-            <p>Your browser does not support camera access. Please use a modern browser with camera support:</p>
-            <ul className="ml-4 list-disc space-y-1 text-sm">
-              <li>Google Chrome (recommended)</li>
-              <li>Mozilla Firefox</li>
-              <li>Safari (macOS/iOS)</li>
-              <li>Microsoft Edge</li>
-            </ul>
-          </div>
-        </AlertDescription>
-      </Alert>
-    );
-  }
+  const getStatusBadge = () => {
+    switch (cameraStatus) {
+      case 'active':
+        return <Badge variant="default" className="bg-success text-success-foreground">Active</Badge>;
+      case 'initializing':
+      case 'requesting-permission':
+        return <Badge variant="secondary">Initializing...</Badge>;
+      case 'denied':
+        return <Badge variant="destructive">Access Denied</Badge>;
+      case 'error':
+        return <Badge variant="destructive">Error</Badge>;
+      default:
+        return <Badge variant="outline">Idle</Badge>;
+    }
+  };
 
   const getSystemStatusBadge = () => {
     switch (systemStatus) {
-      case 'initializing':
-        return (
-          <Badge variant="outline" className="gap-1.5 border-primary/50 bg-primary/10">
-            <Loader2 className="h-3 w-3 animate-spin text-primary" />
-            Initializing System
-          </Badge>
-        );
-      case 'ready':
-        return (
-          <Badge variant="outline" className="gap-1.5 border-chart-2/50 bg-chart-2/10">
-            <CheckCircle2 className="h-3 w-3 text-chart-2" />
-            System Ready
-          </Badge>
-        );
       case 'active':
-        return (
-          <Badge variant="default" className="gap-1.5 animate-pulse-glow">
-            <Activity className="h-3 w-3" />
-            Live Monitoring Active
-          </Badge>
-        );
+        return <Badge variant="default" className="bg-success text-success-foreground">Detecting</Badge>;
+      case 'ready':
+        return <Badge variant="secondary">Ready</Badge>;
+      case 'initializing':
+        return <Badge variant="secondary">Initializing...</Badge>;
       case 'error':
-        return (
-          <Badge variant="destructive" className="gap-1.5">
-            <AlertCircle className="h-3 w-3" />
-            System Error
-          </Badge>
-        );
+        return <Badge variant="destructive">Error</Badge>;
       default:
-        return null;
+        return <Badge variant="outline">Idle</Badge>;
     }
   };
 
-  const getCameraStatusBadge = () => {
-    switch (cameraStatus) {
-      case 'initializing':
-      case 'requesting-permission':
-        return (
-          <Badge variant="outline" className="gap-1.5 border-primary/50 bg-primary/10">
-            <Loader2 className="h-3 w-3 animate-spin text-primary" />
-            {cameraStatus === 'requesting-permission' ? 'Requesting Access' : 'Initializing'}
-          </Badge>
-        );
-      case 'active':
-        return (
-          <Badge variant="outline" className="gap-1.5 border-chart-1/50 bg-chart-1/10">
-            <ShieldCheck className="h-3 w-3 text-chart-1" />
-            Camera Active
-          </Badge>
-        );
-      case 'denied':
-        return (
-          <Badge variant="destructive" className="gap-1.5">
-            <ShieldAlert className="h-3 w-3" />
-            Access Denied
-          </Badge>
-        );
-      case 'error':
-        return (
-          <Badge variant="destructive" className="gap-1.5">
-            <AlertCircle className="h-3 w-3" />
-            Camera Error
-          </Badge>
-        );
-      default:
-        return null;
-    }
-  };
+  if (isSupported === false) {
+    return (
+      <Card className="border-destructive/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <CameraOff className="h-5 w-5" />
+            Camera Not Supported
+          </CardTitle>
+          <CardDescription>
+            Your browser does not support camera access. Please use a modern browser.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <Card className="card-enhanced animate-slide-in lg:col-span-2">
+    <div className="space-y-4">
+      <Card className="border-primary/30">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Camera className="h-5 w-5 text-primary" />
-                Live Operational Mode
-              </CardTitle>
-              <CardDescription>
-                Continuous real-time monitoring with instant alerts
-              </CardDescription>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Camera className="h-5 w-5" />
+              Live Camera Monitoring
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {getStatusBadge()}
               {getSystemStatusBadge()}
-              {getCameraStatusBadge()}
-              {isActive && isDetecting && realTimeFPS > 0 && (
-                <Badge variant="outline" className="gap-1.5 border-primary/50 bg-primary/10">
-                  <Cpu className="h-3 w-3 text-primary" />
-                  {realTimeFPS.toFixed(1)} FPS
-                </Badge>
-              )}
             </div>
           </div>
+          <CardDescription>
+            Real-time road detection with obstacle tracking and environmental analysis
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Live Detection Statistics */}
+          {/* Camera Controls */}
+          <div className="flex flex-wrap gap-2">
+            {!isActive && cameraStatus !== 'error' && cameraStatus !== 'denied' && (
+              <Button
+                onClick={handleStartCamera}
+                disabled={isLoading || cameraStatus === 'initializing'}
+                className="gap-2"
+              >
+                {isLoading || cameraStatus === 'initializing' ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-4 w-4" />
+                    Start Camera
+                  </>
+                )}
+              </Button>
+            )}
+
+            {isActive && (
+              <Button
+                onClick={handleStopCamera}
+                variant="destructive"
+                className="gap-2"
+              >
+                <CameraOff className="h-4 w-4" />
+                Stop Camera
+              </Button>
+            )}
+
+            {(cameraStatus === 'error' || cameraStatus === 'denied') && (
+              <Button
+                onClick={handleRetry}
+                variant="outline"
+                className="gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Retry
+              </Button>
+            )}
+
+            {isActive && !isDetecting && (
+              <Button
+                onClick={handleStartDetection}
+                variant="default"
+                className="gap-2"
+              >
+                <Play className="h-4 w-4" />
+                Start Detection
+              </Button>
+            )}
+
+            {isActive && isDetecting && (
+              <Button
+                onClick={handleStopDetection}
+                variant="outline"
+                className="gap-2"
+              >
+                <Square className="h-4 w-4" />
+                Stop Detection
+              </Button>
+            )}
+          </div>
+
+          {/* Error Display */}
+          {errorDetails && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{errorDetails}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Camera Preview */}
+          <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ display: isActive ? 'block' : 'none' }}
+            />
+            <canvas
+              ref={overlayCanvasRef}
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ display: isDetecting ? 'block' : 'none' }}
+            />
+            <canvas
+              ref={canvasRef}
+              className="hidden"
+            />
+            
+            {!isActive && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center text-muted-foreground">
+                  <Camera className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Camera preview will appear here</p>
+                </div>
+              </div>
+            )}
+
+            {isActive && !isDetecting && (
+              <div className="absolute top-4 left-4 right-4">
+                <Alert className="bg-background/80 backdrop-blur">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <AlertDescription>
+                    Camera ready. Click "Start Detection" to begin analysis.
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
+
+            {isDetecting && (
+              <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+                <Badge variant="destructive" className="animate-pulse">
+                  <Activity className="h-3 w-3 mr-1" />
+                  LIVE
+                </Badge>
+                <Badge variant="secondary">
+                  {realTimeFPS.toFixed(1)} FPS
+                </Badge>
+              </div>
+            )}
+          </div>
+
+          {/* Detection Statistics */}
           {isDetecting && (
-            <div className="grid grid-cols-3 gap-3 rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-4 shadow-inner">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-primary">{detectionCount.obstacles}</p>
-                <p className="text-xs text-muted-foreground">Obstacles Detected</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-3 rounded-lg bg-muted">
+                <div className="text-xs text-muted-foreground">Obstacles</div>
+                <div className="text-2xl font-bold">{detectionCount.obstacles}</div>
               </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-chart-1">{detectionCount.speedLimits}</p>
-                <p className="text-xs text-muted-foreground">Speed Limits Found</p>
+              <div className="p-3 rounded-lg bg-muted">
+                <div className="text-xs text-muted-foreground">Potholes</div>
+                <div className="text-2xl font-bold text-warning">{detectionCount.potholes}</div>
               </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-destructive">{detectionCount.emergencies}</p>
-                <p className="text-xs text-muted-foreground">Emergency Events</p>
+              <div className="p-3 rounded-lg bg-muted">
+                <div className="text-xs text-muted-foreground">Speed Limits</div>
+                <div className="text-2xl font-bold">{detectionCount.speedLimits}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted">
+                <div className="text-xs text-muted-foreground">Emergencies</div>
+                <div className="text-2xl font-bold text-destructive">{detectionCount.emergencies}</div>
               </div>
             </div>
           )}
-
-          <div className="relative aspect-video overflow-hidden rounded-2xl bg-muted shadow-lg">
-            {cameraStatus === 'active' && isActive ? (
-              <>
-                {/* Video element - always visible, positioned behind canvas when detecting */}
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="absolute inset-0 h-full w-full object-cover"
-                  style={{ 
-                    zIndex: isDetecting ? 0 : 10,
-                  }}
-                />
-                {/* Overlay canvas for detection visualization */}
-                <canvas
-                  ref={overlayCanvasRef}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  style={{ 
-                    zIndex: isDetecting ? 10 : 0,
-                    pointerEvents: 'none',
-                  }}
-                />
-                {/* Hidden canvas for photo capture */}
-                <canvas ref={canvasRef} className="hidden" />
-                
-                {/* Live Status Overlay */}
-                {isDetecting && (
-                  <div className="absolute top-4 left-4 z-20 flex items-center gap-2 rounded-lg bg-black/70 px-3 py-2 backdrop-blur-sm">
-                    <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                    <span className="text-xs font-semibold text-white">LIVE</span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex h-full items-center justify-center p-8">
-                <div className="max-w-md text-center">
-                  <div className="mx-auto mb-4 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 p-6 shadow-lg">
-                    {cameraStatus === 'initializing' || cameraStatus === 'requesting-permission' ? (
-                      <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" />
-                    ) : cameraStatus === 'denied' ? (
-                      <ShieldAlert className="mx-auto h-12 w-12 text-destructive" />
-                    ) : cameraStatus === 'error' ? (
-                      <AlertCircle className="mx-auto h-12 w-12 text-destructive" />
-                    ) : systemStatus === 'initializing' ? (
-                      <Zap className="mx-auto h-12 w-12 text-primary animate-pulse" />
-                    ) : (
-                      <Camera className="mx-auto h-12 w-12 text-primary" />
-                    )}
-                  </div>
-                  <p className="text-lg font-medium text-foreground">
-                    {cameraStatus === 'requesting-permission' 
-                      ? 'Requesting Camera Access' 
-                      : cameraStatus === 'initializing'
-                        ? 'Initializing Camera'
-                        : cameraStatus === 'denied'
-                          ? 'Camera Access Denied'
-                          : cameraStatus === 'error'
-                            ? 'Camera Error'
-                            : systemStatus === 'initializing'
-                              ? 'Initializing Live System'
-                              : 'Camera Ready to Start'}
-                  </p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {cameraStatus === 'requesting-permission' 
-                      ? 'Please allow camera access when prompted'
-                      : cameraStatus === 'initializing'
-                        ? 'Setting up camera connection...'
-                        : cameraStatus === 'denied' 
-                          ? 'Camera permissions are required for live monitoring'
-                          : cameraStatus === 'error'
-                            ? errorDetails || 'An error occurred while accessing the camera'
-                            : systemStatus === 'initializing'
-                              ? 'Setting up continuous monitoring system...'
-                              : 'Click "Start Camera" to begin live monitoring'}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Permission prompt alert */}
-          {cameraStatus === 'idle' && !error && !isLoading && (
-            <Alert className="animate-slide-in border-primary/50 bg-primary/5">
-              <ShieldCheck className="h-4 w-4 text-primary" />
-              <AlertDescription>
-                <p className="font-medium text-primary">Live Operational Mode - Camera Access Required</p>
-                <p className="mt-1 text-sm">
-                  This system requires continuous camera access for real-time road monitoring and instant driver alerts. 
-                  All processing happens locally in your browser with hardware acceleration.
-                </p>
-                <p className="mt-2 text-sm font-medium">
-                  Click "Start Camera" below and allow access when prompted.
-                </p>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Camera active and ready alert */}
-          {cameraStatus === 'active' && isActive && !isDetecting && (
-            <Alert className="animate-slide-in border-chart-2/50 bg-chart-2/5">
-              <CheckCircle2 className="h-4 w-4 text-chart-2" />
-              <AlertDescription>
-                <p className="font-medium text-chart-2">Camera Connected Successfully</p>
-                <p className="mt-1 text-sm">
-                  Your camera is now active and ready for live monitoring. Click "Start Live Monitoring" to begin real-time detection.
-                </p>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Permission denied alert */}
-          {cameraStatus === 'denied' && (
-            <Alert variant="destructive" className="animate-slide-in">
-              <ShieldAlert className="h-4 w-4" />
-              <AlertDescription>
-                <div className="space-y-2">
-                  <p className="font-medium">Camera Access Denied - Live Mode Unavailable</p>
-                  <p className="text-sm">
-                    Live operational mode requires camera permissions. To enable:
-                  </p>
-                  <ol className="ml-4 list-decimal space-y-1 text-sm">
-                    <li>Click the camera icon (🎥) or lock icon (🔒) in your browser's address bar</li>
-                    <li>Change "Camera" permission to "Allow"</li>
-                    <li>Click the "Retry Camera" button below</li>
-                  </ol>
-                  {errorDetails && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Error details: {errorDetails}
-                    </p>
-                  )}
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Camera error alert - only show for non-denied errors */}
-          {cameraStatus === 'error' && (
-            <Alert variant="destructive" className="animate-slide-in">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                <div className="space-y-2">
-                  <p className="font-medium">Camera Error</p>
-                  <p className="text-sm">
-                    {errorDetails || (error ? error.message : 'An error occurred while accessing the camera')}
-                  </p>
-                  {error?.type === 'not-found' && (
-                    <div className="mt-2 text-sm">
-                      <p className="font-medium">Troubleshooting:</p>
-                      <ul className="ml-4 list-disc space-y-1">
-                        <li>Ensure your device has a camera connected</li>
-                        <li>Check that no other application is using the camera</li>
-                        <li>Try reconnecting your camera (if external)</li>
-                        <li>Restart your browser</li>
-                      </ul>
-                    </div>
-                  )}
-                  {error?.type === 'not-supported' && (
-                    <p className="mt-2 text-sm">
-                      Your browser or device does not support camera access. Please try a different browser or device.
-                    </p>
-                  )}
-                  {error?.type === 'unknown' && (
-                    <p className="mt-2 text-sm">
-                      An unexpected error occurred. Please try again or use a different browser.
-                    </p>
-                  )}
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <div className="flex gap-3">
-            {cameraStatus !== 'active' ? (
-              <>
-                <Button
-                  onClick={handleStartCamera}
-                  disabled={cameraStatus === 'initializing' || cameraStatus === 'requesting-permission'}
-                  className="flex-1 rounded-xl shadow-lg transition-all duration-300 hover:shadow-glow"
-                  size="lg"
-                >
-                  {cameraStatus === 'initializing' || cameraStatus === 'requesting-permission' ? (
-                    <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      {cameraStatus === 'requesting-permission' ? 'Requesting Access...' : 'Initializing...'}
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="mr-2 h-5 w-5" />
-                      Start Camera
-                    </>
-                  )}
-                </Button>
-                {(cameraStatus === 'error' || cameraStatus === 'denied') && (
-                  <Button
-                    onClick={handleRetryCamera}
-                    variant="outline"
-                    className="rounded-xl transition-all duration-300"
-                    size="lg"
-                  >
-                    <RefreshCw className="mr-2 h-5 w-5" />
-                    Retry
-                  </Button>
-                )}
-              </>
-            ) : (
-              <>
-                {!isDetecting ? (
-                  <Button
-                    onClick={handleStartDetection}
-                    className="flex-1 rounded-xl shadow-lg transition-all duration-300 hover:shadow-glow"
-                    size="lg"
-                  >
-                    <Play className="mr-2 h-5 w-5" />
-                    Start Live Monitoring
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleStopDetection}
-                    variant="secondary"
-                    className="flex-1 rounded-xl shadow-lg transition-all duration-300"
-                    size="lg"
-                  >
-                    <Square className="mr-2 h-5 w-5" />
-                    Pause Monitoring
-                  </Button>
-                )}
-                <Button
-                  onClick={handleStopCamera}
-                  variant="outline"
-                  className="rounded-xl transition-all duration-300 hover:border-destructive hover:text-destructive"
-                  size="lg"
-                >
-                  <CameraOff className="mr-2 h-5 w-5" />
-                  Stop Camera
-                </Button>
-              </>
-            )}
-          </div>
         </CardContent>
       </Card>
 
-      <div className="space-y-6">
-        {isDetecting && (
-          <>
-            <div className="animate-slide-in">
-              <SpeedLimitDisplay
-                detectedSpeedLimit={detectedSpeedLimit}
-                speedLimitConfidence={speedLimitConfidence}
-                currentSpeed={currentSpeed}
-                onSpeedChange={setCurrentSpeed}
-              />
-            </div>
-            
-            <div className="animate-slide-in">
-              <DriverAlertPanel
-                obstacles={obstacles}
-                emergencyConditions={emergencyConditions}
-                detectedSpeedLimit={detectedSpeedLimit}
-                currentSpeed={currentSpeed}
-                soundEnabled={soundEnabled}
-                onToggleSound={() => setSoundEnabled(!soundEnabled)}
-              />
-            </div>
-          </>
-        )}
-        
-        {metrics && isDetecting && (
-          <div className="animate-slide-in">
-            <MetricsPanel metrics={metrics} isLive />
-          </div>
-        )}
-      </div>
+      {/* Metrics and Alerts Grid */}
+      {metrics && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <DriverAlertPanel
+            obstacles={obstacles}
+            emergencyConditions={emergencyConditions}
+            potholes={potholes}
+            detectedSpeedLimit={detectedSpeedLimit}
+            currentSpeed={currentSpeed}
+            soundEnabled={soundEnabled}
+          />
+          <MetricsPanel
+            confidenceScore={metrics.confidenceScore}
+            processingTime={metrics.processingTime}
+            metrics={metrics}
+            environmentalConditions={metrics.environmentalConditions}
+            roadType={metrics.roadType}
+            roadSurfaceFeatures={roadSurfaceFeatures}
+          />
+        </div>
+      )}
+
+      {/* Speed Limit Display */}
+      {detectedSpeedLimit !== null && (
+        <SpeedLimitDisplay
+          detectedSpeedLimit={detectedSpeedLimit}
+          speedLimitConfidence={speedLimitConfidence}
+          currentSpeed={currentSpeed}
+          onSpeedChange={setCurrentSpeed}
+        />
+      )}
     </div>
   );
 }

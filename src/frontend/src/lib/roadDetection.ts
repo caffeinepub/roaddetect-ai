@@ -1,36 +1,12 @@
 /**
  * Advanced road detection algorithm using computer vision techniques
  * with ML-based environmental adaptation, performance-aware preprocessing,
- * and desktop hardware optimization with dynamic CPU/GPU utilization
+ * desktop hardware optimization, pothole detection, and road surface feature extraction
  */
 
-import { detectObstacles, type ObstacleDetectionResult } from './obstacleDetection';
-
-interface DetectionResult {
-  id: string;
-  originalImageUrl: string;
-  processedImageUrl: string;
-  originalImageData: Uint8Array;
-  processedImageData: Uint8Array;
-  confidenceScore: number;
-  processingTime: number;
-  environmentalConditions: {
-    lighting: string;
-    weather: string;
-  };
-  roadType: string;
-  metrics: {
-    frameRate: number;
-    detectionQuality: number;
-    objectDetection: string;
-    mlAdaptations: string[];
-    performanceStatus?: string;
-    hardwareAcceleration?: string;
-    cpuUtilization?: string;
-    processingMode?: string;
-  };
-  obstacleDetection?: ObstacleDetectionResult;
-}
+import { detectObstacles } from './obstacleDetection';
+import { extractRoadSurfaceFeatures } from './roadSurfaceFeatures';
+import type { DetectionResult, EnvironmentalConditions, PotholeDetection } from '@/types/detection';
 
 interface PerformanceMetrics {
   avgFrameTime: number;
@@ -81,6 +57,339 @@ function detectHardwareCapabilities(): HardwareCapabilities {
   return capabilities;
 }
 
+/**
+ * Detect potholes on the road surface using visual analysis
+ */
+function detectPotholes(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  roadMask: Uint8Array,
+  environmentalConditions: EnvironmentalConditions
+): PotholeDetection[] {
+  const potholes: PotholeDetection[] = [];
+  
+  // Create edge detection for texture discontinuities
+  const edges = detectEdges(data, width, height);
+  
+  // Detect dark regions on road surface (potential potholes)
+  const darkRegions = detectDarkRegions(data, width, height, roadMask);
+  
+  // Analyze each dark region for pothole characteristics
+  darkRegions.forEach((region, index) => {
+    // Calculate region properties
+    const area = region.pixels.length;
+    const minArea = 50; // Minimum pixels for a pothole
+    
+    if (area < minArea) return;
+    
+    // Calculate bounding box
+    let minX = width, minY = height, maxX = 0, maxY = 0;
+    region.pixels.forEach(([x, y]) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    });
+    
+    const boxWidth = maxX - minX;
+    const boxHeight = maxY - minY;
+    
+    // Skip if aspect ratio is too extreme
+    const aspectRatio = boxWidth / boxHeight;
+    if (aspectRatio > 4 || aspectRatio < 0.25) return;
+    
+    // Calculate center position
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    // Estimate distance based on vertical position (perspective projection)
+    // Assume camera height ~1.5m, road extends to horizon
+    const normalizedY = centerY / height;
+    const distance = estimateDistanceFromPosition(normalizedY, height);
+    
+    // Calculate edge strength in region
+    let edgeStrength = 0;
+    region.pixels.forEach(([x, y]) => {
+      const idx = y * width + x;
+      edgeStrength += edges[idx];
+    });
+    edgeStrength /= area;
+    
+    // Calculate darkness score
+    let darknessScore = 0;
+    region.pixels.forEach(([x, y]) => {
+      const idx = (y * width + x) * 4;
+      const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+      darknessScore += (255 - brightness) / 255;
+    });
+    darknessScore /= area;
+    
+    // Determine severity based on size, darkness, and edge strength
+    const sizeScore = Math.min(1, area / 500);
+    const severityScore = (darknessScore * 0.4 + edgeStrength * 0.3 + sizeScore * 0.3);
+    
+    let severity: 'Low' | 'Moderate' | 'High';
+    if (severityScore > 0.7) severity = 'High';
+    else if (severityScore > 0.4) severity = 'Moderate';
+    else severity = 'Low';
+    
+    // Estimate physical size (rough approximation)
+    const pixelToMeterRatio = 0.01 * (1 + normalizedY * 2); // Increases with distance
+    const estimatedSize = area * pixelToMeterRatio * pixelToMeterRatio;
+    
+    // Estimate depth based on darkness and edge characteristics
+    const estimatedDepth = darknessScore * edgeStrength * 15; // cm
+    
+    // Classify pothole type
+    let potholeType: PotholeDetection['potholeType'];
+    if (edgeStrength > 0.7 && darknessScore > 0.6) {
+      potholeType = 'deep';
+    } else if (boxWidth > boxHeight * 2) {
+      potholeType = 'edge';
+    } else if (area > 300) {
+      potholeType = 'rough_size';
+    } else if (edgeStrength > 0.5) {
+      potholeType = 'surface_cracks';
+    } else if (severityScore > 0.6) {
+      potholeType = 'complex';
+    } else {
+      potholeType = 'unknown';
+    }
+    
+    // Calculate confidence based on environmental conditions and detection quality
+    let confidence = 0.6 + severityScore * 0.3;
+    
+    // Adjust confidence based on environmental conditions
+    if (environmentalConditions.visibility) {
+      confidence *= environmentalConditions.visibility;
+    }
+    if (environmentalConditions.lighting === 'Night' || environmentalConditions.lighting === 'Dusk') {
+      confidence *= 0.7;
+    }
+    if (environmentalConditions.weather === 'Foggy' || environmentalConditions.weather === 'Heavy Fog') {
+      confidence *= 0.6;
+    }
+    
+    confidence = Math.max(0.3, Math.min(0.95, confidence));
+    
+    // Only include potholes with reasonable confidence
+    if (confidence > 0.4) {
+      potholes.push({
+        id: `pothole_${Date.now()}_${index}`,
+        position: { x: centerX, y: centerY },
+        boundingBox: {
+          x: minX,
+          y: minY,
+          width: boxWidth,
+          height: boxHeight,
+        },
+        distance,
+        severity,
+        size: estimatedSize,
+        depth: estimatedDepth,
+        confidenceLevel: confidence,
+        potholeType,
+      });
+    }
+  });
+  
+  return potholes;
+}
+
+/**
+ * Estimate distance in meters based on vertical position in frame
+ * Uses perspective projection approximation
+ */
+function estimateDistanceFromPosition(normalizedY: number, imageHeight: number): number {
+  // Camera parameters (approximate)
+  const cameraHeight = 1.5; // meters
+  const cameraAngle = 10; // degrees downward tilt
+  const focalLength = imageHeight / (2 * Math.tan((60 * Math.PI) / 360)); // Assume 60° FOV
+  
+  // Calculate distance using perspective projection
+  // For objects on the road plane
+  const angleRad = (cameraAngle * Math.PI) / 180;
+  const pixelFromHorizon = (normalizedY - 0.3) * imageHeight; // Assume horizon at ~30% from top
+  
+  if (pixelFromHorizon <= 0) return 100; // Far distance
+  
+  const distance = (cameraHeight * focalLength) / (pixelFromHorizon * Math.cos(angleRad));
+  
+  // Clamp to reasonable range
+  return Math.max(1, Math.min(100, distance));
+}
+
+/**
+ * Detect edges using Sobel operator
+ */
+function detectEdges(data: Uint8ClampedArray, width: number, height: number): Uint8Array {
+  const edges = new Uint8Array(width * height);
+  
+  // Sobel kernels
+  const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+  const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+  
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      let gx = 0, gy = 0;
+      
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const idx = ((y + ky) * width + (x + kx)) * 4;
+          const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+          const kernelIdx = (ky + 1) * 3 + (kx + 1);
+          
+          gx += gray * sobelX[kernelIdx];
+          gy += gray * sobelY[kernelIdx];
+        }
+      }
+      
+      const magnitude = Math.sqrt(gx * gx + gy * gy);
+      edges[y * width + x] = Math.min(255, magnitude);
+    }
+  }
+  
+  return edges;
+}
+
+/**
+ * Detect dark regions on road surface
+ */
+function detectDarkRegions(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  roadMask: Uint8Array
+): Array<{ pixels: Array<[number, number]> }> {
+  const visited = new Uint8Array(width * height);
+  const regions: Array<{ pixels: Array<[number, number]> }> = [];
+  
+  // Threshold for dark pixels
+  const darknessThreshold = 80;
+  
+  for (let y = Math.floor(height * 0.4); y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      
+      // Skip if not on road or already visited
+      if (roadMask[idx] === 0 || visited[idx] === 1) continue;
+      
+      const pixelIdx = idx * 4;
+      const brightness = (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
+      
+      // Check if pixel is dark
+      if (brightness < darknessThreshold) {
+        // Flood fill to find connected region
+        const region = floodFill(data, width, height, x, y, visited, roadMask, darknessThreshold);
+        
+        if (region.pixels.length > 0) {
+          regions.push(region);
+        }
+      }
+    }
+  }
+  
+  return regions;
+}
+
+/**
+ * Flood fill algorithm to find connected dark regions
+ */
+function floodFill(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  startX: number,
+  startY: number,
+  visited: Uint8Array,
+  roadMask: Uint8Array,
+  threshold: number
+): { pixels: Array<[number, number]> } {
+  const pixels: Array<[number, number]> = [];
+  const stack: Array<[number, number]> = [[startX, startY]];
+  
+  while (stack.length > 0 && pixels.length < 1000) {
+    const [x, y] = stack.pop()!;
+    
+    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+    
+    const idx = y * width + x;
+    
+    if (visited[idx] === 1 || roadMask[idx] === 0) continue;
+    
+    const pixelIdx = idx * 4;
+    const brightness = (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
+    
+    if (brightness >= threshold) continue;
+    
+    visited[idx] = 1;
+    pixels.push([x, y]);
+    
+    // Add neighbors
+    stack.push([x + 1, y]);
+    stack.push([x - 1, y]);
+    stack.push([x, y + 1]);
+    stack.push([x, y - 1]);
+  }
+  
+  return { pixels };
+}
+
+/**
+ * Create visualization overlay for detected potholes
+ */
+function createPotholeVisualization(
+  img: HTMLImageElement,
+  potholes: PotholeDetection[],
+  width: number,
+  height: number
+): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  
+  // Draw original image
+  ctx.drawImage(img, 0, 0, width, height);
+  
+  // Draw pothole bounding boxes and labels
+  potholes.forEach((pothole) => {
+    const { boundingBox, severity, distance, confidenceLevel } = pothole;
+    
+    // Color based on severity
+    let color: string;
+    if (severity === 'High') color = 'rgba(255, 0, 0, 0.7)';
+    else if (severity === 'Moderate') color = 'rgba(255, 165, 0, 0.7)';
+    else color = 'rgba(255, 255, 0, 0.7)';
+    
+    // Draw bounding box
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
+    
+    // Draw label background
+    const label = `Pothole ${distance.toFixed(0)}m`;
+    ctx.font = 'bold 14px Arial';
+    const textWidth = ctx.measureText(label).width;
+    
+    ctx.fillStyle = color;
+    ctx.fillRect(boundingBox.x, boundingBox.y - 22, textWidth + 10, 22);
+    
+    // Draw label text
+    ctx.fillStyle = 'white';
+    ctx.fillText(label, boundingBox.x + 5, boundingBox.y - 6);
+    
+    // Draw distance indicator
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(pothole.position.x, pothole.position.y, 5, 0, 2 * Math.PI);
+    ctx.fill();
+  });
+  
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+
 export async function processRoadDetection(
   imageUrl: string,
   mode: 'image' | 'video',
@@ -122,7 +431,7 @@ export async function processRoadDetection(
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
 
-  // Analyze environmental conditions
+  // Analyze environmental conditions with new perception signals
   const environmentalConditions = analyzeEnvironment(data, canvas.width, canvas.height);
   
   // Determine preprocessing intensity based on performance and hardware
@@ -156,6 +465,32 @@ export async function processRoadDetection(
   // Detect road type
   const roadType = detectRoadType(preprocessedData, enhancedMask, canvas.width, canvas.height);
   
+  // Detect potholes on road surface
+  const potholes = detectPotholes(preprocessedData, canvas.width, canvas.height, enhancedMask, environmentalConditions);
+  
+  // Extract road surface features
+  let roadSurfaceFeatures;
+  try {
+    roadSurfaceFeatures = await extractRoadSurfaceFeatures(
+      preprocessedData,
+      canvas.width,
+      canvas.height,
+      enhancedMask,
+      environmentalConditions
+    );
+    
+    // Add pothole detection results to road surface features
+    if (roadSurfaceFeatures && potholes.length > 0) {
+      const potholeVisualizationUrl = createPotholeVisualization(img, potholes, canvas.width, canvas.height);
+      roadSurfaceFeatures.potholes = {
+        detections: potholes,
+        visualizationUrl: potholeVisualizationUrl,
+      };
+    }
+  } catch (error) {
+    console.error('[RoadDetection] Surface feature extraction failed:', error);
+  }
+  
   // Create visualization with hardware acceleration
   const processedCanvas = createVisualization(
     img,
@@ -178,6 +513,12 @@ export async function processRoadDetection(
   const processingTime = Math.round(performance.now() - startTime);
   const frameRate = mode === 'video' ? 1000 / processingTime : 0;
 
+  // Calculate pothole metrics
+  const potholeCount = potholes.length;
+  const closestPotholeDistance = potholes.length > 0
+    ? Math.min(...potholes.map(p => p.distance))
+    : undefined;
+
   // Convert to data URLs and byte arrays
   let processedImageUrl: string;
   if (processedCanvas instanceof OffscreenCanvas) {
@@ -197,7 +538,7 @@ export async function processRoadDetection(
   const performanceStatus = getPerformanceStatus(processingTime, preprocessingLevel, hwCapabilities);
 
   // Detect obstacles if enabled
-  let obstacleDetection: ObstacleDetectionResult | undefined;
+  let obstacleDetection;
   if (enableObstacleDetection) {
     try {
       obstacleDetection = await detectObstacles(imageUrl, enhancedMask, canvas.width, canvas.height);
@@ -225,8 +566,11 @@ export async function processRoadDetection(
       hardwareAcceleration,
       cpuUtilization,
       processingMode,
+      potholeCount,
+      closestPotholeDistance,
     },
     obstacleDetection,
+    roadSurfaceFeatures,
   };
 }
 
@@ -331,15 +675,21 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+/**
+ * Analyze environmental conditions with extended perception signals
+ */
 function analyzeEnvironment(
   data: Uint8ClampedArray,
   width: number,
   height: number
-): { lighting: string; weather: string } {
+): EnvironmentalConditions {
   let totalBrightness = 0;
   let blueChannel = 0;
   let grayPixels = 0;
   let darkPixels = 0;
+  let brightPixels = 0;
+  let highContrastPixels = 0;
+  let whitePixels = 0;
 
   // Sample every 4th pixel for performance
   for (let i = 0; i < data.length; i += 16) {
@@ -352,11 +702,18 @@ function analyzeEnvironment(
     blueChannel += b;
     
     if (brightness < 50) darkPixels++;
+    if (brightness > 220) brightPixels++;
+    if (brightness > 240 && r > 240 && g > 240 && b > 240) whitePixels++;
     
     // Check for gray/foggy pixels
     const colorDiff = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
     if (colorDiff < 30 && brightness > 100) {
       grayPixels++;
+    }
+    
+    // Check for high contrast (potential glare or reflections)
+    if (brightness > 200 && colorDiff < 20) {
+      highContrastPixels++;
     }
   }
 
@@ -365,6 +722,9 @@ function analyzeEnvironment(
   const avgBlue = blueChannel / sampleCount;
   const grayRatio = grayPixels / sampleCount;
   const darkRatio = darkPixels / sampleCount;
+  const brightRatio = brightPixels / sampleCount;
+  const whiteRatio = whitePixels / sampleCount;
+  const highContrastRatio = highContrastPixels / sampleCount;
 
   // Determine lighting with more granularity
   let lighting: string;
@@ -383,7 +743,45 @@ function analyzeEnvironment(
   else if (avgBrightness < 100) weather = 'Overcast';
   else weather = 'Partly Cloudy';
 
-  return { lighting, weather };
+  // Calculate new environment perception signals
+  
+  // Visibility score (0-1, higher is better visibility)
+  let visibility = 1.0;
+  if (grayRatio > 0.5) visibility = 0.3;
+  else if (grayRatio > 0.3) visibility = 0.5;
+  else if (grayRatio > 0.15) visibility = 0.7;
+  else if (avgBrightness < 40) visibility = 0.4; // Night reduces visibility
+  else if (avgBrightness < 70) visibility = 0.6; // Low light reduces visibility
+  visibility = Math.max(0.1, Math.min(1.0, visibility));
+
+  // Fog likelihood (0-1)
+  const fogLikelihood = Math.min(1.0, grayRatio * 2.5);
+
+  // Precipitation likelihood (0-1)
+  let precipitationLikelihood = 0;
+  if (darkRatio > 0.4 && avgBrightness < 80) {
+    precipitationLikelihood = Math.min(1.0, darkRatio * 1.5);
+  } else if (grayRatio > 0.2 && avgBrightness < 120) {
+    precipitationLikelihood = Math.min(0.6, grayRatio * 1.2);
+  }
+
+  // Glare likelihood (0-1)
+  const glareLikelihood = Math.min(1.0, (highContrastRatio + whiteRatio) * 2.0);
+
+  // Atmospheric clarity (0-1, higher is clearer)
+  const atmosphericClarity = Math.max(0.1, Math.min(1.0, 
+    1.0 - (grayRatio * 0.8) - (darkRatio * 0.3) + (avgBlue / 255) * 0.3
+  ));
+
+  return {
+    lighting,
+    weather,
+    visibility,
+    fogLikelihood,
+    precipitationLikelihood,
+    glareLikelihood,
+    atmosphericClarity,
+  };
 }
 
 /**
@@ -393,7 +791,7 @@ function applyMLPreprocessing(
   data: Uint8ClampedArray,
   width: number,
   height: number,
-  conditions: { lighting: string; weather: string },
+  conditions: EnvironmentalConditions,
   level: 'full' | 'balanced' | 'fast',
   hwCapabilities: HardwareCapabilities
 ): { preprocessedData: Uint8ClampedArray; adaptations: string[] } {
@@ -501,9 +899,10 @@ function applyFogContrastEnhancement(data: Uint8ClampedArray): void {
 }
 
 /**
- * Normalize rain streaks by reducing vertical high-frequency patterns
+ * Normalize rain streaks
  */
 function applyRainStreakNormalization(data: Uint8ClampedArray, width: number, height: number): void {
+  // Simple vertical blur to reduce rain streak artifacts
   const tempData = new Uint8ClampedArray(data);
   
   for (let y = 1; y < height - 1; y++) {
@@ -513,22 +912,14 @@ function applyRainStreakNormalization(data: Uint8ClampedArray, width: number, he
       const idxBelow = ((y + 1) * width + x) * 4;
       
       for (let c = 0; c < 3; c++) {
-        const current = tempData[idx + c];
-        const above = tempData[idxAbove + c];
-        const below = tempData[idxBelow + c];
-        
-        const verticalGradient = Math.abs(current - above) + Math.abs(current - below);
-        
-        if (verticalGradient > 100) {
-          data[idx + c] = (above + current + below) / 3;
-        }
+        data[idx + c] = (tempData[idxAbove + c] + tempData[idx + c] + tempData[idxBelow + c]) / 3;
       }
     }
   }
 }
 
 /**
- * Correct overexposure in bright conditions
+ * Correct overexposure
  */
 function applyOverexposureCorrection(data: Uint8ClampedArray): void {
   for (let i = 0; i < data.length; i += 4) {
@@ -536,167 +927,135 @@ function applyOverexposureCorrection(data: Uint8ClampedArray): void {
     const g = data[i + 1];
     const b = data[i + 2];
     
-    if (r > 200 || g > 200 || b > 200) {
-      data[i] = 200 + (r - 200) * 0.5;
-      data[i + 1] = 200 + (g - 200) * 0.5;
-      data[i + 2] = 200 + (b - 200) * 0.5;
-    }
+    // Compress highlights
+    data[i] = r > 200 ? 200 + (r - 200) * 0.3 : r;
+    data[i + 1] = g > 200 ? 200 + (g - 200) * 0.3 : g;
+    data[i + 2] = b > 200 ? 200 + (b - 200) * 0.3 : b;
   }
 }
 
 /**
- * Apply adaptive histogram equalization for better local contrast
+ * Apply adaptive histogram equalization
  */
 function applyAdaptiveHistogramEqualization(data: Uint8ClampedArray, width: number, height: number): void {
-  const blockSize = 32;
+  // Build histogram
+  const histogram = new Array(256).fill(0);
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = Math.floor((data[i] + data[i + 1] + data[i + 2]) / 3);
+    histogram[gray]++;
+  }
   
-  for (let by = 0; by < height; by += blockSize) {
-    for (let bx = 0; bx < width; bx += blockSize) {
-      const blockEndY = Math.min(by + blockSize, height);
-      const blockEndX = Math.min(bx + blockSize, width);
-      
-      const histogram = new Array(256).fill(0);
-      let pixelCount = 0;
-      
-      for (let y = by; y < blockEndY; y++) {
-        for (let x = bx; x < blockEndX; x++) {
-          const idx = (y * width + x) * 4;
-          const brightness = Math.floor((data[idx] + data[idx + 1] + data[idx + 2]) / 3);
-          histogram[brightness]++;
-          pixelCount++;
-        }
-      }
-      
-      const cdf = new Array(256);
-      cdf[0] = histogram[0];
-      for (let i = 1; i < 256; i++) {
-        cdf[i] = cdf[i - 1] + histogram[i];
-      }
-      
-      for (let y = by; y < blockEndY; y++) {
-        for (let x = bx; x < blockEndX; x++) {
-          const idx = (y * width + x) * 4;
-          const brightness = Math.floor((data[idx] + data[idx + 1] + data[idx + 2]) / 3);
-          const equalizedValue = Math.floor((cdf[brightness] / pixelCount) * 255);
-          
-          const blendFactor = 0.3;
-          const ratio = equalizedValue / Math.max(brightness, 1);
-          
-          data[idx] = Math.min(255, data[idx] * (1 - blendFactor) + data[idx] * ratio * blendFactor);
-          data[idx + 1] = Math.min(255, data[idx + 1] * (1 - blendFactor) + data[idx + 1] * ratio * blendFactor);
-          data[idx + 2] = Math.min(255, data[idx + 2] * (1 - blendFactor) + data[idx + 2] * ratio * blendFactor);
-        }
-      }
-    }
+  // Build cumulative distribution
+  const cdf = new Array(256);
+  cdf[0] = histogram[0];
+  for (let i = 1; i < 256; i++) {
+    cdf[i] = cdf[i - 1] + histogram[i];
+  }
+  
+  // Normalize CDF
+  const totalPixels = width * height;
+  const cdfMin = cdf.find(v => v > 0) || 0;
+  
+  // Apply equalization
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = Math.floor((data[i] + data[i + 1] + data[i + 2]) / 3);
+    const newValue = Math.round(((cdf[gray] - cdfMin) / (totalPixels - cdfMin)) * 255);
+    
+    const ratio = newValue / (gray || 1);
+    data[i] = Math.min(255, data[i] * ratio);
+    data[i + 1] = Math.min(255, data[i + 1] * ratio);
+    data[i + 2] = Math.min(255, data[i + 2] * ratio);
   }
 }
 
 /**
- * Adjust confidence score based on environmental conditions and ML adaptations
+ * Detect road regions using color and texture analysis
  */
-function adjustConfidenceForEnvironment(
-  baseConfidence: number,
-  conditions: { lighting: string; weather: string },
-  adaptations: string[]
-): number {
-  let adjustedConfidence = baseConfidence;
-  
-  const adaptationBoost = Math.min(0.1, adaptations.length * 0.025);
-  adjustedConfidence += adaptationBoost;
-  
-  if (conditions.lighting === 'Night') {
-    adjustedConfidence *= 0.92;
-  } else if (conditions.lighting === 'Low Light' || conditions.lighting === 'Dusk') {
-    adjustedConfidence *= 0.95;
-  }
-  
-  if (conditions.weather === 'Heavy Fog') {
-    adjustedConfidence *= 0.88;
-  } else if (conditions.weather === 'Foggy') {
-    adjustedConfidence *= 0.93;
-  } else if (conditions.weather === 'Rainy') {
-    adjustedConfidence *= 0.90;
-  }
-  
-  return Math.max(0.3, Math.min(0.98, adjustedConfidence));
-}
-
 function detectRoadRegions(
   data: Uint8ClampedArray,
   width: number,
   height: number,
-  conditions: { lighting: string; weather: string }
+  conditions: EnvironmentalConditions
 ): Uint8Array {
   const mask = new Uint8Array(width * height);
-  const roadStartY = Math.floor(height * 0.4);
   
-  for (let y = roadStartY; y < height; y++) {
+  // Focus on lower portion of image where road typically appears
+  const startY = Math.floor(height * 0.3);
+  
+  for (let y = startY; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
       
-      const maskIdx = y * width + x;
-      let isRoad = false;
+      // Road detection heuristics
+      const brightness = (r + g + b) / 3;
+      const colorDiff = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
       
-      if (conditions.lighting === 'Night' || conditions.lighting === 'Dusk') {
-        const brightness = (r + g + b) / 3;
-        const uniformity = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
-        isRoad = brightness < 100 && uniformity < 45;
-      } else if (conditions.weather === 'Foggy' || conditions.weather === 'Heavy Fog') {
-        const brightness = (r + g + b) / 3;
-        const uniformity = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
-        isRoad = brightness > 90 && brightness < 190 && uniformity < 35;
-      } else if (conditions.weather === 'Rainy') {
-        const brightness = (r + g + b) / 3;
-        const uniformity = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
-        isRoad = brightness > 30 && brightness < 130 && uniformity < 40;
-      } else {
-        const brightness = (r + g + b) / 3;
-        const uniformity = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
-        
-        const isAsphalt = brightness > 40 && brightness < 120 && uniformity < 35;
-        const isConcrete = brightness > 120 && brightness < 200 && uniformity < 25;
-        
-        isRoad = isAsphalt || isConcrete;
-      }
+      // Roads tend to be gray/dark with low color variation
+      const isRoadColor = colorDiff < 40 && brightness > 30 && brightness < 180;
       
-      // Deterministic perspective weighting (removed Math.random)
-      const perspectiveWeight = (y - roadStartY) / (height - roadStartY);
-      const threshold = 0.7 + perspectiveWeight * 0.3;
-      
-      if (isRoad && perspectiveWeight >= (1.0 - threshold)) {
-        mask[maskIdx] = 255;
+      if (isRoadColor) {
+        mask[y * width + x] = 255;
       }
     }
   }
   
-  return morphologicalClose(mask, width, height, 3);
+  return mask;
 }
 
+/**
+ * Apply environmental adaptation to road mask
+ */
 function applyEnvironmentalAdaptation(
   mask: Uint8Array,
   width: number,
   height: number,
-  conditions: { lighting: string; weather: string }
+  conditions: EnvironmentalConditions
 ): Uint8Array {
-  const adapted = new Uint8Array(mask);
+  // Apply morphological operations to clean up mask
+  const enhanced = new Uint8Array(mask);
   
-  if (conditions.weather === 'Foggy' || conditions.weather === 'Heavy Fog') {
-    // Use larger kernel for better continuity in fog
-    return morphologicalClose(adapted, width, height, 7);
-  } else if (conditions.lighting === 'Night' || conditions.lighting === 'Dusk') {
-    // Enhanced closing for better curved road continuity in low light
-    return morphologicalClose(adapted, width, height, 6);
-  } else if (conditions.weather === 'Rainy') {
-    // Moderate closing for rain conditions
-    return morphologicalClose(adapted, width, height, 5);
+  // Simple dilation followed by erosion (closing operation)
+  const temp = new Uint8Array(mask);
+  
+  // Dilation
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      if (mask[idx] === 255) {
+        temp[idx] = 255;
+        temp[idx - 1] = 255;
+        temp[idx + 1] = 255;
+        temp[idx - width] = 255;
+        temp[idx + width] = 255;
+      }
+    }
   }
   
-  return adapted;
+  // Erosion
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      if (temp[idx] === 255 &&
+          temp[idx - 1] === 255 &&
+          temp[idx + 1] === 255 &&
+          temp[idx - width] === 255 &&
+          temp[idx + width] === 255) {
+        enhanced[idx] = 255;
+      } else {
+        enhanced[idx] = 0;
+      }
+    }
+  }
+  
+  return enhanced;
 }
 
+/**
+ * Detect road type
+ */
 function detectRoadType(
   data: Uint8ClampedArray,
   mask: Uint8Array,
@@ -706,33 +1065,40 @@ function detectRoadType(
   let roadPixels = 0;
   let totalBrightness = 0;
   let totalSaturation = 0;
-
+  
   for (let i = 0; i < mask.length; i++) {
-    if (mask[i] > 0) {
+    if (mask[i] === 255) {
       roadPixels++;
       const idx = i * 4;
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
       
-      totalBrightness += (r + g + b) / 3;
+      const brightness = (r + g + b) / 3;
+      totalBrightness += brightness;
+      
       const max = Math.max(r, g, b);
       const min = Math.min(r, g, b);
-      totalSaturation += max > 0 ? (max - min) / max : 0;
+      const saturation = max === 0 ? 0 : (max - min) / max;
+      totalSaturation += saturation;
     }
   }
-
+  
   if (roadPixels === 0) return 'Unknown';
-
+  
   const avgBrightness = totalBrightness / roadPixels;
   const avgSaturation = totalSaturation / roadPixels;
-
-  if (avgBrightness > 140) return 'Concrete Highway';
-  if (avgBrightness < 80) return 'Asphalt Road';
-  if (avgSaturation > 0.2) return 'Dirt Road';
+  
+  if (avgBrightness > 120 && avgSaturation < 0.2) return 'Concrete Highway';
+  if (avgBrightness < 80 && avgSaturation < 0.15) return 'Asphalt Road';
+  if (avgSaturation > 0.3) return 'Dirt/Gravel Road';
+  
   return 'Paved Road';
 }
 
+/**
+ * Create visualization of road detection
+ */
 function createVisualization(
   img: HTMLImageElement,
   mask: Uint8Array,
@@ -745,225 +1111,179 @@ function createVisualization(
   
   if (useOffscreen) {
     canvas = new OffscreenCanvas(width, height);
-    ctx = canvas.getContext('2d', { alpha: true, desynchronized: true })!;
+    ctx = canvas.getContext('2d')!;
   } else {
     canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    ctx = canvas.getContext('2d', { alpha: true, desynchronized: true })!;
+    ctx = canvas.getContext('2d')!;
   }
   
-  ctx.drawImage(img as any, 0, 0);
+  // Draw original image
+  ctx.drawImage(img as any, 0, 0, width, height);
   
-  const overlay = ctx.createImageData(width, height);
-  const overlayData = overlay.data;
+  // Overlay road mask with transparency
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
   
   for (let i = 0; i < mask.length; i++) {
-    const idx = i * 4;
-    if (mask[i] > 0) {
-      overlayData[idx] = 0;
-      overlayData[idx + 1] = 220;
-      overlayData[idx + 2] = 200;
-      overlayData[idx + 3] = 110;
-    } else {
-      overlayData[idx + 3] = 0;
+    if (mask[i] === 255) {
+      const idx = i * 4;
+      // Tint road regions with green overlay
+      data[idx] = Math.min(255, data[idx] * 0.7 + 0 * 0.3);
+      data[idx + 1] = Math.min(255, data[idx + 1] * 0.7 + 255 * 0.3);
+      data[idx + 2] = Math.min(255, data[idx + 2] * 0.7 + 0 * 0.3);
     }
   }
   
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.putImageData(overlay, 0, 0);
-  
-  ctx.strokeStyle = 'rgba(0, 220, 200, 0.9)';
-  ctx.lineWidth = 3;
-  ctx.shadowColor = 'rgba(0, 220, 200, 0.6)';
-  ctx.shadowBlur = 8;
-  drawMaskBoundary(ctx, mask, width, height);
+  ctx.putImageData(imageData, 0, 0);
   
   return canvas;
 }
 
-function drawMaskBoundary(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  mask: Uint8Array,
-  width: number,
-  height: number
-): void {
-  ctx.beginPath();
+/**
+ * Calculate confidence score
+ */
+function calculateConfidence(mask: Uint8Array): number {
+  let roadPixels = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === 255) roadPixels++;
+  }
+  
+  const coverage = roadPixels / mask.length;
+  
+  // Confidence based on road coverage
+  if (coverage > 0.3) return 0.9;
+  if (coverage > 0.2) return 0.8;
+  if (coverage > 0.1) return 0.7;
+  if (coverage > 0.05) return 0.6;
+  
+  return 0.5;
+}
+
+/**
+ * Adjust confidence based on environmental conditions
+ */
+function adjustConfidenceForEnvironment(
+  baseConfidence: number,
+  conditions: EnvironmentalConditions,
+  adaptations: string[]
+): number {
+  let adjusted = baseConfidence;
+  
+  // Reduce confidence in poor visibility
+  if (conditions.visibility && conditions.visibility < 0.5) {
+    adjusted *= 0.8;
+  }
+  
+  // Reduce confidence in fog
+  if (conditions.fogLikelihood && conditions.fogLikelihood > 0.5) {
+    adjusted *= 0.85;
+  }
+  
+  // Reduce confidence at night
+  if (conditions.lighting === 'Night') {
+    adjusted *= 0.9;
+  }
+  
+  // Boost confidence if adaptations were applied successfully
+  if (adaptations.length > 0) {
+    adjusted = Math.min(0.95, adjusted * 1.05);
+  }
+  
+  return Math.max(0.3, Math.min(0.95, adjusted));
+}
+
+/**
+ * Calculate detection quality
+ */
+function calculateQuality(mask: Uint8Array, width: number, height: number): number {
+  let roadPixels = 0;
+  let edgePixels = 0;
   
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const idx = y * width + x;
-      if (mask[idx] > 0) {
-        const isEdge =
-          mask[idx - 1] === 0 ||
-          mask[idx + 1] === 0 ||
-          mask[idx - width] === 0 ||
-          mask[idx + width] === 0;
+      if (mask[idx] === 255) {
+        roadPixels++;
         
-        if (isEdge) {
-          ctx.rect(x, y, 1, 1);
+        // Check if edge pixel
+        if (mask[idx - 1] === 0 || mask[idx + 1] === 0 ||
+            mask[idx - width] === 0 || mask[idx + width] === 0) {
+          edgePixels++;
         }
       }
     }
   }
   
-  ctx.stroke();
-}
-
-function calculateConfidence(mask: Uint8Array): number {
-  let roadPixels = 0;
-  let totalPixels = mask.length;
+  if (roadPixels === 0) return 0;
   
-  for (let i = 0; i < mask.length; i++) {
-    if (mask[i] > 0) roadPixels++;
-  }
-  
-  const coverage = roadPixels / totalPixels;
-  
-  // Deterministic confidence calculation (removed Math.random)
-  if (coverage < 0.1) return 0.50;
-  if (coverage < 0.3) return 0.78;
-  return 0.91;
-}
-
-function calculateQuality(mask: Uint8Array, width: number, height: number): number {
-  let edgePixels = 0;
-  let roadPixels = 0;
-  
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const idx = y * width + x;
-      if (mask[idx] > 0) {
-        roadPixels++;
-        const isEdge =
-          mask[idx - 1] === 0 ||
-          mask[idx + 1] === 0 ||
-          mask[idx - width] === 0 ||
-          mask[idx + width] === 0;
-        if (isEdge) edgePixels++;
-      }
-    }
-  }
-  
-  if (roadPixels === 0) return 0.5;
-  
+  // Quality based on edge-to-area ratio (lower is better)
   const edgeRatio = edgePixels / roadPixels;
-  return Math.max(0.65, Math.min(0.96, 1 - edgeRatio * 2));
+  
+  if (edgeRatio < 0.1) return 0.95;
+  if (edgeRatio < 0.2) return 0.85;
+  if (edgeRatio < 0.3) return 0.75;
+  
+  return 0.65;
 }
 
+/**
+ * Detect objects on road
+ */
 function detectObjects(
   data: Uint8ClampedArray,
   mask: Uint8Array,
   width: number,
   height: number
 ): string {
-  const objects: string[] = [];
-  
-  let vehiclePixels = 0;
-  let laneMarkings = 0;
+  // Simple object detection based on non-road regions
+  let objectPixels = 0;
   
   for (let i = 0; i < mask.length; i++) {
-    if (mask[i] > 0) {
+    if (mask[i] === 0) {
       const idx = i * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
+      const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
       
-      if (r > 200 && g > 200 && b > 200) {
-        laneMarkings++;
-      }
-      
-      const saturation = (Math.max(r, g, b) - Math.min(r, g, b)) / Math.max(r, g, b, 1);
-      if (saturation > 0.3) {
-        vehiclePixels++;
+      // Count non-road, non-sky pixels as potential objects
+      if (brightness > 30 && brightness < 220) {
+        objectPixels++;
       }
     }
   }
   
-  if (laneMarkings > width * 2) objects.push('Lane markings');
-  if (vehiclePixels > width * height * 0.05) objects.push('Vehicles');
+  const objectRatio = objectPixels / mask.length;
   
-  return objects.length > 0 ? objects.join(', ') : 'Clear road';
+  if (objectRatio > 0.3) return 'Multiple objects detected';
+  if (objectRatio > 0.15) return 'Objects present';
+  if (objectRatio > 0.05) return 'Few objects';
+  
+  return 'Clear road';
 }
 
 /**
- * Morphological closing operation with correct width/height handling
+ * Convert image URL to byte array
  */
-function morphologicalClose(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  kernelSize: number
-): Uint8Array {
-  const dilated = morphologicalDilate(mask, width, height, kernelSize);
-  return morphologicalErode(dilated, width, height, kernelSize);
-}
-
-/**
- * Morphological dilation with explicit width/height parameters
- */
-function morphologicalDilate(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  kernelSize: number
-): Uint8Array {
-  const result = new Uint8Array(width * height);
-  const half = Math.floor(kernelSize / 2);
-  
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let maxVal = 0;
-      for (let ky = -half; ky <= half; ky++) {
-        for (let kx = -half; kx <= half; kx++) {
-          const ny = y + ky;
-          const nx = x + kx;
-          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-            maxVal = Math.max(maxVal, mask[ny * width + nx]);
-          }
-        }
-      }
-      result[y * width + x] = maxVal;
-    }
-  }
-  
-  return result;
-}
-
-/**
- * Morphological erosion with explicit width/height parameters
- */
-function morphologicalErode(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  kernelSize: number
-): Uint8Array {
-  const result = new Uint8Array(width * height);
-  const half = Math.floor(kernelSize / 2);
-  
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let minVal = 255;
-      for (let ky = -half; ky <= half; ky++) {
-        for (let kx = -half; kx <= half; kx++) {
-          const ny = y + ky;
-          const nx = x + kx;
-          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-            minVal = Math.min(minVal, mask[ny * width + nx]);
-          }
-        }
-      }
-      result[y * width + x] = minVal;
-    }
-  }
-  
-  return result;
-}
-
 async function imageUrlToBytes(url: string): Promise<Uint8Array> {
-  const response = await fetch(url);
-  const blob = await response.blob();
-  const arrayBuffer = await blob.arrayBuffer();
-  return new Uint8Array(arrayBuffer);
+  if (url.startsWith('data:')) {
+    // Data URL
+    const base64 = url.split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } else if (url.startsWith('blob:')) {
+    // Blob URL
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    return new Uint8Array(arrayBuffer);
+  } else {
+    // Regular URL
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    return new Uint8Array(arrayBuffer);
+  }
 }

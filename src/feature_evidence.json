@@ -2,10 +2,12 @@
   "kind": "feature_evidence_report",
   "features": [
     {
-      "featureId": "feature-update-the-driver-alerts-ui-to-use-clear-status-color-coding-show-warning-danger-critical-alerts-in-red-and-show-the-safe-normal-state-in-green",
-      "featureTitle": "Update the Driver Alerts UI to use clear status color-coding: show warning/danger/critical alerts in red, and show the safe/normal state in green.",
+      "featureId": "feature-extend-the-road-detection-algorithm-to-identify-potholes-on-the-road-surface-using-visual-analysis-of-road-texture-depth-discontinuities-and-surface-irregularities",
+      "featureTitle": "Extend the road detection algorithm to identify potholes on the road surface using visual analysis of road texture, depth discontinuities, and surface irregularities",
       "files": [
-        "frontend/src/components/DriverAlertPanel.tsx"
+        "frontend/src/components/DetectionResults.tsx",
+        "frontend/src/lib/roadDetection.ts",
+        "frontend/src/types/detection.ts"
       ],
       "components": [
         "blob-storage@4.0.0",
@@ -14,7 +16,8 @@
         "shadcn-ui@1.0.0",
         "build-template-react@1.0.0",
         "initial-app@1.0.0",
-        "github-export-icp-cli@1.0.0"
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
       ],
       "testIds": [
         "REQ-1"
@@ -22,10 +25,11 @@
       "confidence": "high"
     },
     {
-      "featureId": "feature-improve-the-detection-metrics-road-information-section-so-the-road-information-is-easier-to-understand-at-a-glance-and-explicitly-communicates-when-no-objects-are-detected",
-      "featureTitle": "Improve the Detection Metrics ‘Road Information’ section so the road information is easier to understand at a glance, and explicitly communicates when no objects are detected.",
+      "featureId": "feature-calculate-estimated-distance-to-detected-potholes-based-on-camera-perspective-road-geometry-and-pixel-position-in-the-frame",
+      "featureTitle": "Calculate estimated distance to detected potholes based on camera perspective, road geometry, and pixel position in the frame",
       "files": [
-        "frontend/src/components/MetricsPanel.tsx"
+        "frontend/src/lib/roadDetection.ts",
+        "frontend/src/types/detection.ts"
       ],
       "components": [
         "blob-storage@4.0.0",
@@ -34,7 +38,8 @@
         "shadcn-ui@1.0.0",
         "build-template-react@1.0.0",
         "initial-app@1.0.0",
-        "github-export-icp-cli@1.0.0"
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
       ],
       "testIds": [
         "REQ-2"
@@ -42,10 +47,11 @@
       "confidence": "high"
     },
     {
-      "featureId": "feature-improve-the-road-region-segmentation-algorithm-so-it-better-detects-curved-roads-the-current-system-misses-curves",
-      "featureTitle": "Improve the road region segmentation algorithm so it better detects curved roads (the current system misses curves).",
+      "featureId": "feature-trigger-audio-and-visual-alerts-when-potholes-are-detected-within-50-meters-displaying-potholes-on-road-warning-message",
+      "featureTitle": "Trigger audio and visual alerts when potholes are detected within 50 meters, displaying 'Potholes on road' warning message",
       "files": [
-        "frontend/src/lib/roadDetection.ts"
+        "frontend/src/components/DriverAlertPanel.tsx",
+        "frontend/src/components/LiveCameraSection.tsx"
       ],
       "components": [
         "blob-storage@4.0.0",
@@ -54,10 +60,56 @@
         "shadcn-ui@1.0.0",
         "build-template-react@1.0.0",
         "initial-app@1.0.0",
-        "github-export-icp-cli@1.0.0"
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
       ],
       "testIds": [
         "REQ-3"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-add-pothole-detection-results-to-the-backend-obstacleevent-storage-including-pothole-type-classification-location-coordinates-and-distance-information",
+      "featureTitle": "Add pothole detection results to the backend ObstacleEvent storage, including pothole type classification, location coordinates, and distance information",
+      "files": [
+        "frontend/src/components/LiveCameraSection.tsx",
+        "frontend/src/hooks/useQueries.ts"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-4"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-display-detected-potholes-in-the-metricspanel-with-count-and-closest-distance-information",
+      "featureTitle": "Display detected potholes in the MetricsPanel with count and closest distance information",
+      "files": [
+        "frontend/src/components/LiveCameraSection.tsx",
+        "frontend/src/components/MetricsPanel.tsx",
+        "frontend/src/types/detection.ts"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-5"
       ],
       "confidence": "high"
     }

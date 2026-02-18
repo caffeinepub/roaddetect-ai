@@ -19,53 +19,48 @@ export const _CaffeineStorageRefillResult = IDL.Record({
   'success' : IDL.Opt(IDL.Bool),
   'topped_up_amount' : IDL.Opt(IDL.Nat),
 });
-export const ExternalBlob = IDL.Vec(IDL.Nat8);
 export const Time = IDL.Int;
-export const DetectionResult = IDL.Record({
-  'id' : IDL.Text,
-  'environmentalConditions' : IDL.Record({
-    'roadType' : IDL.Text,
-    'surfaceType' : IDL.Text,
-    'lighting' : IDL.Text,
-    'weather' : IDL.Text,
-  }),
-  'metrics' : IDL.Record({
-    'objectDetection' : IDL.Text,
-    'systemPerformance' : IDL.Record({
-      'cpuUtilization' : IDL.Float64,
-      'gpuUtilization' : IDL.Float64,
-      'memoryUsage' : IDL.Float64,
-      'hardwareType' : IDL.Text,
-    }),
-    'detectionQuality' : IDL.Float64,
-    'frameRate' : IDL.Float64,
-  }),
-  'processingTime' : IDL.Nat,
-  'confidenceScore' : IDL.Float64,
-  'processedImage' : ExternalBlob,
-  'timestamp' : Time,
-  'image' : ExternalBlob,
+export const ExternalBlob = IDL.Vec(IDL.Nat8);
+export const PotholeType = IDL.Variant({
+  'deep' : IDL.Null,
+  'edge' : IDL.Null,
+  'pavement' : IDL.Null,
+  'complex' : IDL.Null,
+  'rough_size' : IDL.Null,
+  'surface_cracks' : IDL.Null,
+  'unknown' : IDL.Null,
 });
-export const EmergencyEvent = IDL.Record({
-  'id' : IDL.Text,
-  'type' : IDL.Text,
-  'resolutionStatus' : IDL.Text,
-  'description' : IDL.Text,
-  'timestamp' : Time,
-  'associatedDetectionId' : IDL.Text,
-  'severity' : IDL.Record({ 'urgency' : IDL.Text, 'level' : IDL.Text }),
-});
-export const HardwarePerformanceMetrics = IDL.Record({
-  'optimizationLevel' : IDL.Text,
-  'processingEfficiency' : IDL.Float64,
-  'cpuUtilization' : IDL.Float64,
-  'gpuUtilization' : IDL.Float64,
-  'memoryUsage' : IDL.Float64,
-  'benchmarkScores' : IDL.Record({
-    'gpuScore' : IDL.Float64,
-    'cpuScore' : IDL.Float64,
+export const PotholeDetails = IDL.Record({
+  'potholeType' : PotholeType,
+  'image_url' : IDL.Text,
+  'distance_from_vehicle' : IDL.Float64,
+  'createdAt' : Time,
+  'size' : IDL.Float64,
+  'severity' : IDL.Text,
+  'depth' : IDL.Float64,
+  'location' : IDL.Record({
+    'coordinates' : IDL.Tuple(IDL.Float64, IDL.Float64),
+    'accuracy' : IDL.Float64,
   }),
-  'hardwareType' : IDL.Text,
+});
+export const UserRole = IDL.Variant({
+  'admin' : IDL.Null,
+  'user' : IDL.Null,
+  'guest' : IDL.Null,
+});
+export const MotionType = IDL.Variant({
+  'static' : IDL.Null,
+  'moving' : IDL.Null,
+});
+export const ObjectType = IDL.Variant({
+  'pedestrian' : IDL.Null,
+  'debris' : IDL.Null,
+  'vehicle' : IDL.Null,
+  'unknown' : IDL.Null,
+});
+export const Classification = IDL.Record({
+  'motion' : MotionType,
+  'objectType' : ObjectType,
 });
 export const ObstacleEvent = IDL.Record({
   'id' : IDL.Text,
@@ -76,26 +71,10 @@ export const ObstacleEvent = IDL.Record({
   'image' : ExternalBlob,
   'position' : IDL.Record({ 'x' : IDL.Float64, 'y' : IDL.Float64 }),
   'riskLevel' : IDL.Record({ 'description' : IDL.Text, 'level' : IDL.Text }),
+  'potholeDetails' : IDL.Opt(PotholeDetails),
+  'classification' : Classification,
 });
-export const SpecificationReportResponse = IDL.Record({
-  'id' : IDL.Text,
-  'content' : ExternalBlob,
-  'createdAt' : Time,
-});
-export const SpeedLimitDetection = IDL.Record({
-  'id' : IDL.Text,
-  'frameData' : ExternalBlob,
-  'confidenceLevel' : IDL.Float64,
-  'timestamp' : Time,
-  'detectedSpeedLimit' : IDL.Opt(IDL.Nat),
-  'associatedDetectionId' : IDL.Text,
-});
-export const VideoProcessingStatusRequest = IDL.Record({ 'taskId' : IDL.Text });
-export const VideoProcessingStatusResponse = IDL.Record({});
-export const VideoUploadRequest = IDL.Record({ 'videoBlob' : ExternalBlob });
-export const VideoUploadResponse = IDL.Record({ 'taskId' : IDL.Text });
-export const CameraStatusRequest = IDL.Record({ 'state' : IDL.Text });
-export const CameraStatusResponse = IDL.Record({ 'message' : IDL.Text });
+export const UserProfile = IDL.Record({ 'name' : IDL.Text });
 
 export const idlService = IDL.Service({
   '_caffeineStorageBlobIsLive' : IDL.Func(
@@ -124,196 +103,34 @@ export const idlService = IDL.Service({
       [],
     ),
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
-  'getAllDetectionResults' : IDL.Func(
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addPotholeSpecificEvent' : IDL.Func(
+      [
+        IDL.Text,
+        IDL.Record({ 'x' : IDL.Float64, 'y' : IDL.Float64 }),
+        IDL.Float64,
+        Time,
+        IDL.Text,
+        ExternalBlob,
+        IDL.Record({ 'description' : IDL.Text, 'level' : IDL.Text }),
+        PotholeDetails,
+      ],
       [],
-      [IDL.Vec(DetectionResult)],
-      ['query'],
-    ),
-  'getAllEmergencyEvents' : IDL.Func([], [IDL.Vec(EmergencyEvent)], ['query']),
-  'getAllHardwarePerformanceMetrics' : IDL.Func(
       [],
-      [IDL.Vec(HardwarePerformanceMetrics)],
-      ['query'],
     ),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'getAllObstacleEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
-  'getAllSpecificationReports' : IDL.Func(
-      [],
-      [IDL.Vec(SpecificationReportResponse)],
-      ['query'],
-    ),
-  'getAllSpeedLimitDetections' : IDL.Func(
-      [],
-      [IDL.Vec(SpeedLimitDetection)],
-      ['query'],
-    ),
-  'getCombinedAlertHistory' : IDL.Func(
-      [],
-      [
-        IDL.Record({
-          'detectionResults' : IDL.Vec(DetectionResult),
-          'speedLimitDetections' : IDL.Vec(SpeedLimitDetection),
-          'emergencyEvents' : IDL.Vec(EmergencyEvent),
-          'hardwarePerformanceMetrics' : IDL.Vec(HardwarePerformanceMetrics),
-          'obstacleEvents' : IDL.Vec(ObstacleEvent),
-        }),
-      ],
-      ['query'],
-    ),
-  'getDetectionResult' : IDL.Func([IDL.Text], [DetectionResult], ['query']),
-  'getDetectionStatistics' : IDL.Func(
-      [],
-      [
-        IDL.Record({
-          'totalDetections' : IDL.Nat,
-          'totalHighRiskEvents' : IDL.Nat,
-          'averageDetectionTime' : IDL.Float64,
-          'highestRiskLevel' : IDL.Text,
-          'totalSpeedLimitDetections' : IDL.Nat,
-          'totalEmergencyEvents' : IDL.Nat,
-          'mostCommonObjectType' : IDL.Text,
-          'totalObstacleEvents' : IDL.Nat,
-          'averageConfidenceScore' : IDL.Float64,
-          'averageHardwareEfficiency' : IDL.Float64,
-          'averageSpeedLimitConfidence' : IDL.Float64,
-          'averageProcessingTime' : IDL.Float64,
-        }),
-      ],
-      ['query'],
-    ),
-  'getEmergencyEvent' : IDL.Func([IDL.Text], [EmergencyEvent], ['query']),
-  'getEnvironmentalAnalysis' : IDL.Func(
-      [],
-      [
-        IDL.Record({
-          'detectionScoreByCondition' : IDL.Record({
-            'surfaceQuality' : IDL.Text,
-            'avgScore' : IDL.Float64,
-            'commonRoadType' : IDL.Text,
-            'lighting' : IDL.Text,
-            'weather' : IDL.Text,
-          }),
-        }),
-      ],
-      ['query'],
-    ),
-  'getFilteredAlertHistory' : IDL.Func(
-      [
-        IDL.Record({
-          'detectionRange' : IDL.Opt(IDL.Float64),
-          'weatherCondition' : IDL.Opt(IDL.Text),
-          'timeRange' : IDL.Opt(IDL.Record({ 'end' : Time, 'start' : Time })),
-          'severity' : IDL.Opt(IDL.Text),
-          'speedLimitRange' : IDL.Opt(
-            IDL.Record({ 'lower' : IDL.Nat, 'upper' : IDL.Nat })
-          ),
-          'objectType' : IDL.Opt(IDL.Text),
-          'riskLevel' : IDL.Opt(IDL.Text),
-        }),
-      ],
-      [
-        IDL.Record({
-          'detectionResults' : IDL.Vec(DetectionResult),
-          'speedLimitDetections' : IDL.Vec(SpeedLimitDetection),
-          'emergencyEvents' : IDL.Vec(EmergencyEvent),
-          'obstacleEvents' : IDL.Vec(ObstacleEvent),
-        }),
-      ],
-      ['query'],
-    ),
-  'getFilteredEventHistory' : IDL.Func(
-      [
-        IDL.Record({
-          'detectionRange' : IDL.Opt(IDL.Float64),
-          'severity' : IDL.Opt(IDL.Text),
-          'objectType' : IDL.Opt(IDL.Text),
-          'riskLevel' : IDL.Opt(IDL.Text),
-        }),
-      ],
-      [
-        IDL.Record({
-          'emergencyEvents' : IDL.Vec(EmergencyEvent),
-          'obstacleEvents' : IDL.Vec(ObstacleEvent),
-        }),
-      ],
-      ['query'],
-    ),
-  'getHardwarePerformanceMetrics' : IDL.Func(
-      [IDL.Text],
-      [HardwarePerformanceMetrics],
-      ['query'],
-    ),
+  'getAllPotholeEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getObstacleEvent' : IDL.Func([IDL.Text], [ObstacleEvent], ['query']),
-  'getSpecificationReport' : IDL.Func(
-      [IDL.Text],
-      [SpecificationReportResponse],
+  'getUserProfile' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Opt(UserProfile)],
       ['query'],
     ),
-  'getSpeedLimitDetection' : IDL.Func(
-      [IDL.Text],
-      [SpeedLimitDetection],
-      ['query'],
-    ),
-  'getVideoProcessingStatus' : IDL.Func(
-      [VideoProcessingStatusRequest],
-      [VideoProcessingStatusResponse],
-      [],
-    ),
-  'handleVideoUpload' : IDL.Func(
-      [VideoUploadRequest],
-      [VideoUploadResponse],
-      [],
-    ),
-  'storeDetectionResult' : IDL.Func(
-      [
-        IDL.Text,
-        ExternalBlob,
-        ExternalBlob,
-        IDL.Float64,
-        IDL.Nat,
-        Time,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Float64,
-        IDL.Float64,
-        IDL.Text,
-        IDL.Text,
-        IDL.Float64,
-        IDL.Float64,
-        IDL.Float64,
-      ],
-      [],
-      [],
-    ),
-  'storeEmergencyEvent' : IDL.Func(
-      [
-        IDL.Text,
-        IDL.Text,
-        Time,
-        IDL.Text,
-        IDL.Text,
-        IDL.Record({ 'urgency' : IDL.Text, 'level' : IDL.Text }),
-        IDL.Text,
-      ],
-      [],
-      [],
-    ),
-  'storeHardwarePerformanceMetrics' : IDL.Func(
-      [
-        IDL.Text,
-        IDL.Text,
-        IDL.Float64,
-        IDL.Float64,
-        IDL.Float64,
-        IDL.Float64,
-        IDL.Float64,
-        IDL.Text,
-        IDL.Float64,
-      ],
-      [],
-      [],
-    ),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'storeObstacleEvent' : IDL.Func(
       [
         IDL.Text,
@@ -324,19 +141,10 @@ export const idlService = IDL.Service({
         IDL.Text,
         ExternalBlob,
         IDL.Record({ 'description' : IDL.Text, 'level' : IDL.Text }),
+        Classification,
+        IDL.Opt(PotholeDetails),
       ],
       [],
-      [],
-    ),
-  'storeSpecificationReport' : IDL.Func([IDL.Text, ExternalBlob, Time], [], []),
-  'storeSpeedLimitDetection' : IDL.Func(
-      [IDL.Text, IDL.Opt(IDL.Nat), IDL.Float64, Time, IDL.Text, ExternalBlob],
-      [],
-      [],
-    ),
-  'updateCameraStatus' : IDL.Func(
-      [CameraStatusRequest],
-      [CameraStatusResponse],
       [],
     ),
 });
@@ -355,53 +163,45 @@ export const idlFactory = ({ IDL }) => {
     'success' : IDL.Opt(IDL.Bool),
     'topped_up_amount' : IDL.Opt(IDL.Nat),
   });
-  const ExternalBlob = IDL.Vec(IDL.Nat8);
   const Time = IDL.Int;
-  const DetectionResult = IDL.Record({
-    'id' : IDL.Text,
-    'environmentalConditions' : IDL.Record({
-      'roadType' : IDL.Text,
-      'surfaceType' : IDL.Text,
-      'lighting' : IDL.Text,
-      'weather' : IDL.Text,
-    }),
-    'metrics' : IDL.Record({
-      'objectDetection' : IDL.Text,
-      'systemPerformance' : IDL.Record({
-        'cpuUtilization' : IDL.Float64,
-        'gpuUtilization' : IDL.Float64,
-        'memoryUsage' : IDL.Float64,
-        'hardwareType' : IDL.Text,
-      }),
-      'detectionQuality' : IDL.Float64,
-      'frameRate' : IDL.Float64,
-    }),
-    'processingTime' : IDL.Nat,
-    'confidenceScore' : IDL.Float64,
-    'processedImage' : ExternalBlob,
-    'timestamp' : Time,
-    'image' : ExternalBlob,
+  const ExternalBlob = IDL.Vec(IDL.Nat8);
+  const PotholeType = IDL.Variant({
+    'deep' : IDL.Null,
+    'edge' : IDL.Null,
+    'pavement' : IDL.Null,
+    'complex' : IDL.Null,
+    'rough_size' : IDL.Null,
+    'surface_cracks' : IDL.Null,
+    'unknown' : IDL.Null,
   });
-  const EmergencyEvent = IDL.Record({
-    'id' : IDL.Text,
-    'type' : IDL.Text,
-    'resolutionStatus' : IDL.Text,
-    'description' : IDL.Text,
-    'timestamp' : Time,
-    'associatedDetectionId' : IDL.Text,
-    'severity' : IDL.Record({ 'urgency' : IDL.Text, 'level' : IDL.Text }),
-  });
-  const HardwarePerformanceMetrics = IDL.Record({
-    'optimizationLevel' : IDL.Text,
-    'processingEfficiency' : IDL.Float64,
-    'cpuUtilization' : IDL.Float64,
-    'gpuUtilization' : IDL.Float64,
-    'memoryUsage' : IDL.Float64,
-    'benchmarkScores' : IDL.Record({
-      'gpuScore' : IDL.Float64,
-      'cpuScore' : IDL.Float64,
+  const PotholeDetails = IDL.Record({
+    'potholeType' : PotholeType,
+    'image_url' : IDL.Text,
+    'distance_from_vehicle' : IDL.Float64,
+    'createdAt' : Time,
+    'size' : IDL.Float64,
+    'severity' : IDL.Text,
+    'depth' : IDL.Float64,
+    'location' : IDL.Record({
+      'coordinates' : IDL.Tuple(IDL.Float64, IDL.Float64),
+      'accuracy' : IDL.Float64,
     }),
-    'hardwareType' : IDL.Text,
+  });
+  const UserRole = IDL.Variant({
+    'admin' : IDL.Null,
+    'user' : IDL.Null,
+    'guest' : IDL.Null,
+  });
+  const MotionType = IDL.Variant({ 'static' : IDL.Null, 'moving' : IDL.Null });
+  const ObjectType = IDL.Variant({
+    'pedestrian' : IDL.Null,
+    'debris' : IDL.Null,
+    'vehicle' : IDL.Null,
+    'unknown' : IDL.Null,
+  });
+  const Classification = IDL.Record({
+    'motion' : MotionType,
+    'objectType' : ObjectType,
   });
   const ObstacleEvent = IDL.Record({
     'id' : IDL.Text,
@@ -412,26 +212,10 @@ export const idlFactory = ({ IDL }) => {
     'image' : ExternalBlob,
     'position' : IDL.Record({ 'x' : IDL.Float64, 'y' : IDL.Float64 }),
     'riskLevel' : IDL.Record({ 'description' : IDL.Text, 'level' : IDL.Text }),
+    'potholeDetails' : IDL.Opt(PotholeDetails),
+    'classification' : Classification,
   });
-  const SpecificationReportResponse = IDL.Record({
-    'id' : IDL.Text,
-    'content' : ExternalBlob,
-    'createdAt' : Time,
-  });
-  const SpeedLimitDetection = IDL.Record({
-    'id' : IDL.Text,
-    'frameData' : ExternalBlob,
-    'confidenceLevel' : IDL.Float64,
-    'timestamp' : Time,
-    'detectedSpeedLimit' : IDL.Opt(IDL.Nat),
-    'associatedDetectionId' : IDL.Text,
-  });
-  const VideoProcessingStatusRequest = IDL.Record({ 'taskId' : IDL.Text });
-  const VideoProcessingStatusResponse = IDL.Record({});
-  const VideoUploadRequest = IDL.Record({ 'videoBlob' : ExternalBlob });
-  const VideoUploadResponse = IDL.Record({ 'taskId' : IDL.Text });
-  const CameraStatusRequest = IDL.Record({ 'state' : IDL.Text });
-  const CameraStatusResponse = IDL.Record({ 'message' : IDL.Text });
+  const UserProfile = IDL.Record({ 'name' : IDL.Text });
   
   return IDL.Service({
     '_caffeineStorageBlobIsLive' : IDL.Func(
@@ -460,200 +244,34 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
-    'getAllDetectionResults' : IDL.Func(
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addPotholeSpecificEvent' : IDL.Func(
+        [
+          IDL.Text,
+          IDL.Record({ 'x' : IDL.Float64, 'y' : IDL.Float64 }),
+          IDL.Float64,
+          Time,
+          IDL.Text,
+          ExternalBlob,
+          IDL.Record({ 'description' : IDL.Text, 'level' : IDL.Text }),
+          PotholeDetails,
+        ],
         [],
-        [IDL.Vec(DetectionResult)],
-        ['query'],
-      ),
-    'getAllEmergencyEvents' : IDL.Func(
         [],
-        [IDL.Vec(EmergencyEvent)],
-        ['query'],
       ),
-    'getAllHardwarePerformanceMetrics' : IDL.Func(
-        [],
-        [IDL.Vec(HardwarePerformanceMetrics)],
-        ['query'],
-      ),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'getAllObstacleEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
-    'getAllSpecificationReports' : IDL.Func(
-        [],
-        [IDL.Vec(SpecificationReportResponse)],
-        ['query'],
-      ),
-    'getAllSpeedLimitDetections' : IDL.Func(
-        [],
-        [IDL.Vec(SpeedLimitDetection)],
-        ['query'],
-      ),
-    'getCombinedAlertHistory' : IDL.Func(
-        [],
-        [
-          IDL.Record({
-            'detectionResults' : IDL.Vec(DetectionResult),
-            'speedLimitDetections' : IDL.Vec(SpeedLimitDetection),
-            'emergencyEvents' : IDL.Vec(EmergencyEvent),
-            'hardwarePerformanceMetrics' : IDL.Vec(HardwarePerformanceMetrics),
-            'obstacleEvents' : IDL.Vec(ObstacleEvent),
-          }),
-        ],
-        ['query'],
-      ),
-    'getDetectionResult' : IDL.Func([IDL.Text], [DetectionResult], ['query']),
-    'getDetectionStatistics' : IDL.Func(
-        [],
-        [
-          IDL.Record({
-            'totalDetections' : IDL.Nat,
-            'totalHighRiskEvents' : IDL.Nat,
-            'averageDetectionTime' : IDL.Float64,
-            'highestRiskLevel' : IDL.Text,
-            'totalSpeedLimitDetections' : IDL.Nat,
-            'totalEmergencyEvents' : IDL.Nat,
-            'mostCommonObjectType' : IDL.Text,
-            'totalObstacleEvents' : IDL.Nat,
-            'averageConfidenceScore' : IDL.Float64,
-            'averageHardwareEfficiency' : IDL.Float64,
-            'averageSpeedLimitConfidence' : IDL.Float64,
-            'averageProcessingTime' : IDL.Float64,
-          }),
-        ],
-        ['query'],
-      ),
-    'getEmergencyEvent' : IDL.Func([IDL.Text], [EmergencyEvent], ['query']),
-    'getEnvironmentalAnalysis' : IDL.Func(
-        [],
-        [
-          IDL.Record({
-            'detectionScoreByCondition' : IDL.Record({
-              'surfaceQuality' : IDL.Text,
-              'avgScore' : IDL.Float64,
-              'commonRoadType' : IDL.Text,
-              'lighting' : IDL.Text,
-              'weather' : IDL.Text,
-            }),
-          }),
-        ],
-        ['query'],
-      ),
-    'getFilteredAlertHistory' : IDL.Func(
-        [
-          IDL.Record({
-            'detectionRange' : IDL.Opt(IDL.Float64),
-            'weatherCondition' : IDL.Opt(IDL.Text),
-            'timeRange' : IDL.Opt(IDL.Record({ 'end' : Time, 'start' : Time })),
-            'severity' : IDL.Opt(IDL.Text),
-            'speedLimitRange' : IDL.Opt(
-              IDL.Record({ 'lower' : IDL.Nat, 'upper' : IDL.Nat })
-            ),
-            'objectType' : IDL.Opt(IDL.Text),
-            'riskLevel' : IDL.Opt(IDL.Text),
-          }),
-        ],
-        [
-          IDL.Record({
-            'detectionResults' : IDL.Vec(DetectionResult),
-            'speedLimitDetections' : IDL.Vec(SpeedLimitDetection),
-            'emergencyEvents' : IDL.Vec(EmergencyEvent),
-            'obstacleEvents' : IDL.Vec(ObstacleEvent),
-          }),
-        ],
-        ['query'],
-      ),
-    'getFilteredEventHistory' : IDL.Func(
-        [
-          IDL.Record({
-            'detectionRange' : IDL.Opt(IDL.Float64),
-            'severity' : IDL.Opt(IDL.Text),
-            'objectType' : IDL.Opt(IDL.Text),
-            'riskLevel' : IDL.Opt(IDL.Text),
-          }),
-        ],
-        [
-          IDL.Record({
-            'emergencyEvents' : IDL.Vec(EmergencyEvent),
-            'obstacleEvents' : IDL.Vec(ObstacleEvent),
-          }),
-        ],
-        ['query'],
-      ),
-    'getHardwarePerformanceMetrics' : IDL.Func(
-        [IDL.Text],
-        [HardwarePerformanceMetrics],
-        ['query'],
-      ),
+    'getAllPotholeEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getObstacleEvent' : IDL.Func([IDL.Text], [ObstacleEvent], ['query']),
-    'getSpecificationReport' : IDL.Func(
-        [IDL.Text],
-        [SpecificationReportResponse],
+    'getUserProfile' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(UserProfile)],
         ['query'],
       ),
-    'getSpeedLimitDetection' : IDL.Func(
-        [IDL.Text],
-        [SpeedLimitDetection],
-        ['query'],
-      ),
-    'getVideoProcessingStatus' : IDL.Func(
-        [VideoProcessingStatusRequest],
-        [VideoProcessingStatusResponse],
-        [],
-      ),
-    'handleVideoUpload' : IDL.Func(
-        [VideoUploadRequest],
-        [VideoUploadResponse],
-        [],
-      ),
-    'storeDetectionResult' : IDL.Func(
-        [
-          IDL.Text,
-          ExternalBlob,
-          ExternalBlob,
-          IDL.Float64,
-          IDL.Nat,
-          Time,
-          IDL.Text,
-          IDL.Text,
-          IDL.Text,
-          IDL.Text,
-          IDL.Float64,
-          IDL.Float64,
-          IDL.Text,
-          IDL.Text,
-          IDL.Float64,
-          IDL.Float64,
-          IDL.Float64,
-        ],
-        [],
-        [],
-      ),
-    'storeEmergencyEvent' : IDL.Func(
-        [
-          IDL.Text,
-          IDL.Text,
-          Time,
-          IDL.Text,
-          IDL.Text,
-          IDL.Record({ 'urgency' : IDL.Text, 'level' : IDL.Text }),
-          IDL.Text,
-        ],
-        [],
-        [],
-      ),
-    'storeHardwarePerformanceMetrics' : IDL.Func(
-        [
-          IDL.Text,
-          IDL.Text,
-          IDL.Float64,
-          IDL.Float64,
-          IDL.Float64,
-          IDL.Float64,
-          IDL.Float64,
-          IDL.Text,
-          IDL.Float64,
-        ],
-        [],
-        [],
-      ),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'storeObstacleEvent' : IDL.Func(
         [
           IDL.Text,
@@ -664,23 +282,10 @@ export const idlFactory = ({ IDL }) => {
           IDL.Text,
           ExternalBlob,
           IDL.Record({ 'description' : IDL.Text, 'level' : IDL.Text }),
+          Classification,
+          IDL.Opt(PotholeDetails),
         ],
         [],
-        [],
-      ),
-    'storeSpecificationReport' : IDL.Func(
-        [IDL.Text, ExternalBlob, Time],
-        [],
-        [],
-      ),
-    'storeSpeedLimitDetection' : IDL.Func(
-        [IDL.Text, IDL.Opt(IDL.Nat), IDL.Float64, Time, IDL.Text, ExternalBlob],
-        [],
-        [],
-      ),
-    'updateCameraStatus' : IDL.Func(
-        [CameraStatusRequest],
-        [CameraStatusResponse],
         [],
       ),
   });

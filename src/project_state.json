@@ -1,229 +1,48 @@
 {
   "schemaVersion": "1.0.0",
   "projectStateVersion": 3,
-  "summary": "RoadDetect AI is a web-based road safety monitoring system that performs client-side computer-vision style processing for (1) road region segmentation, (2) obstacle detection with risk classification and emergency condition inference, and (3) speed-limit sign detection. It supports live camera “operational mode” with real-time overlays, audio/visual driver alerts, and performance-aware processing, plus offline analysis via image and video uploads. Detection results and associated event logs (obstacles, emergencies, speed limits, performance metrics, reports) are stored in an Internet Computer (ICP) Motoko canister, with a blob-storage mixin for handling image/frame blobs. The UI includes history browsing and a printable specification/performance report generator.",
+  "summary": "Application with pothole detection feature that alerts users 50 meters before encountering potholes on the road",
+  "architectural_notes": [],
+  "known_issues": [],
+  "isFixRequest": false,
   "existing_features": [
     {
-      "id": "IF-1",
-      "title": "Live camera operational mode with auto-start and robust camera handling",
-      "synonyms": [
-        "Live monitoring",
-        "Live camera tab",
-        "Operational mode"
-      ],
-      "description": "Provides a live camera view that can auto-start when the tab is active, manages permission/initialization states, supports retries, and exposes start/stop controls for the camera and monitoring loop with detailed UI feedback and toasts.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-2",
-      "title": "Real-time road region detection and overlay visualization",
-      "synonyms": [
-        "Road segmentation",
-        "Road mask overlay"
-      ],
-      "description": "Processes frames (or uploaded images) to detect road regions using heuristic CV methods and environmental adaptation, then renders an overlay/boundary visualization on top of the original image/video.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-3",
-      "title": "Performance-aware processing pipeline with hardware capability detection",
-      "synonyms": [
-        "Hardware optimization",
-        "Adaptive preprocessing"
-      ],
-      "description": "Detects client capabilities (OffscreenCanvas, WebGL availability, CPU cores, device memory, inferred GPU tier) and dynamically selects preprocessing intensity (full/balanced/fast) while tracking processing time and live FPS to throttle frame processing.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-4",
-      "title": "Environmental condition analysis (lighting and weather) with ML-style preprocessing adaptations",
-      "synonyms": [
-        "Lighting detection",
-        "Weather detection",
-        "Adaptive preprocessing"
-      ],
-      "description": "Analyzes image brightness/color statistics to infer lighting/weather conditions and applies condition-specific preprocessing steps (low-light enhancement, fog contrast enhancement, rain streak normalization, overexposure correction, adaptive histogram equalization).",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-5",
-      "title": "Obstacle detection with region segmentation, classification, and risk scoring",
-      "synonyms": [
-        "Obstacle finder",
-        "Object detection (heuristic)"
-      ],
-      "description": "Detects obstacles using color/contrast segmentation and flood-fill connected components, classifies obstacles (vehicle/pedestrian/sign/unknown), computes confidence, bounding boxes, normalized positions, and assigns risk levels based on on-road likelihood and proximity.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-6",
-      "title": "Emergency condition inference from detected obstacles",
-      "synonyms": [
-        "Emergency detection",
-        "Collision risk detection"
-      ],
-      "description": "Derives emergency conditions such as collision risk, road obstruction, and pedestrian alerts based on obstacle counts and risk levels, producing structured emergency condition events with severity/urgency.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-7",
-      "title": "Driver alert panel with visual prioritization and audible alerts",
-      "synonyms": [
-        "Alerts UI",
-        "Sound alerts"
-      ],
-      "description": "Displays critical/warning/info alerts for obstacles and emergency conditions, includes speed-limit violation alerts, and generates throttled audio tones via Web Audio API with a user-controlled sound toggle.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-8",
-      "title": "Speed limit sign detection with visualization and confidence scoring",
-      "synonyms": [
-        "Speed sign recognition",
-        "Speed limit CV"
-      ],
-      "description": "Detects circular sign-like regions in the upper image area, applies simplified pattern heuristics to estimate speed limit values, returns confidence, position/bounding box, and generates an annotated visualization image plus raw visualization bytes.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-9",
-      "title": "Speed limit monitor UI with overspeed status and driver input",
-      "synonyms": [
-        "SpeedLimitDisplay",
-        "Overspeed warnings"
-      ],
-      "description": "Shows detected speed limit and confidence, allows input of current vehicle speed, computes overspeed/approaching-limit states, and renders color-coded warnings and a progress-style comparison bar.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-10",
-      "title": "Image upload analysis workflow with backend persistence",
-      "synonyms": [
-        "Upload image",
-        "Offline analysis"
-      ],
-      "description": "Supports drag-and-drop image upload, runs the road/obstacle detection pipeline, displays results (original/road/obstacles), and persists detection results plus obstacle/emergency event logs to the backend canister using ExternalBlob storage.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-11",
-      "title": "Video upload frame extraction, analysis, playback controls, and backend persistence",
-      "synonyms": [
-        "Upload video",
-        "Frame-by-frame analysis"
-      ],
-      "description": "Accepts a video file, extracts frames at a fixed interval, runs detection per frame with progress tracking, stores detections and related obstacle/emergency events in the backend, and provides playback/step controls to review processed frames.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-12",
-      "title": "Detection history browsing with detail view",
-      "synonyms": [
-        "History tab",
-        "Past detections"
-      ],
-      "description": "Fetches and displays stored detection history in a scrollable grid, supports selecting an entry to view original/processed images and associated confidence, quality, processing time, and environmental condition metadata.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-13",
-      "title": "Backend event logging and retrieval APIs (detections, obstacles, emergencies, speed limits, metrics, reports)",
-      "synonyms": [
-        "Motoko storage API",
-        "Canister data model"
-      ],
-      "description": "Motoko canister stores detection results and multiple event types in Map structures and exposes query endpoints to retrieve all entries, retrieve single items by id, and retrieve combined alert history for downstream analysis.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-14",
-      "title": "Backend aggregated detection statistics API with periodic frontend refresh",
-      "synonyms": [
-        "System statistics",
-        "Analytics"
-      ],
-      "description": "Backend computes aggregate stats (counts, averages, most common object type, risk summaries, speed-limit detection averages, hardware efficiency averages). Frontend fetches these stats via React Query and can refetch periodically for live updates.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-15",
-      "title": "Filtered alert/history query APIs",
-      "synonyms": [
-        "Filtering",
-        "Query by risk/severity/time"
-      ],
-      "description": "Backend supports filtered retrieval of obstacle/emergency events and combined alert history based on optional filters such as object type, risk level, severity, time range, weather condition, and speed limit range.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-16",
-      "title": "PDF/specification report generator (print-to-PDF)",
-      "synonyms": [
-        "Report generation",
-        "Specification report"
-      ],
-      "description": "Generates a styled HTML report in a new window including live detection statistics and descriptive system sections, enabling users to print/save as PDF via the browser print dialog.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-17",
-      "title": "ICP blob storage mixin with authorization and garbage-collection helpers",
-      "synonyms": [
-        "Caffeine storage mixin",
-        "Blob GC utilities"
-      ],
-      "description": "Includes Motoko blob-storage mixin providing gateway principal authorization list updates, dead-blob enumeration and confirmation pruning, storage blob liveness checks, and cashier cycle refill/top-up integration via environment variables.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "IF-18",
-      "title": "Internet Identity based authentication and identity-aware actor management",
-      "synonyms": [
-        "II login",
-        "Identity-aware backend actor"
-      ],
-      "description": "Provides an InternetIdentityProvider that initializes and manages AuthClient identity state and a useActor hook that creates an authenticated or anonymous canister actor; actor changes automatically invalidate and refetch dependent React Query data.",
-      "reqIds": [],
-      "version": 1
-    },
-    {
-      "id": "feature-update-the-driver-alerts-ui-to-use-clear-status-color-coding-show-warning-danger-critical-alerts-in-red-and-show-the-safe-normal-state-in-green",
-      "title": "Update the Driver Alerts UI to use clear status color-coding: show warning/danger/critical alerts in red, and show the safe/normal state in green.",
+      "id": "feature-extend-the-road-detection-algorithm-to-identify-potholes-on-the-road-surface-using-visual-analysis-of-road-texture-depth-discontinuities-and-surface-irregularities",
+      "title": "Extend the road detection algorithm to identify potholes on the road surface using visual analysis of road texture, depth discontinuities, and surface irregularities",
       "reqIds": [
         "REQ-1"
       ],
       "version": 1
     },
     {
-      "id": "feature-improve-the-detection-metrics-road-information-section-so-the-road-information-is-easier-to-understand-at-a-glance-and-explicitly-communicates-when-no-objects-are-detected",
-      "title": "Improve the Detection Metrics ‘Road Information’ section so the road information is easier to understand at a glance, and explicitly communicates when no objects are detected.",
+      "id": "feature-calculate-estimated-distance-to-detected-potholes-based-on-camera-perspective-road-geometry-and-pixel-position-in-the-frame",
+      "title": "Calculate estimated distance to detected potholes based on camera perspective, road geometry, and pixel position in the frame",
       "reqIds": [
         "REQ-2"
       ],
       "version": 1
     },
     {
-      "id": "feature-improve-the-road-region-segmentation-algorithm-so-it-better-detects-curved-roads-the-current-system-misses-curves",
-      "title": "Improve the road region segmentation algorithm so it better detects curved roads (the current system misses curves).",
+      "id": "feature-trigger-audio-and-visual-alerts-when-potholes-are-detected-within-50-meters-displaying-potholes-on-road-warning-message",
+      "title": "Trigger audio and visual alerts when potholes are detected within 50 meters, displaying 'Potholes on road' warning message",
       "reqIds": [
         "REQ-3"
+      ],
+      "version": 1
+    },
+    {
+      "id": "feature-add-pothole-detection-results-to-the-backend-obstacleevent-storage-including-pothole-type-classification-location-coordinates-and-distance-information",
+      "title": "Add pothole detection results to the backend ObstacleEvent storage, including pothole type classification, location coordinates, and distance information",
+      "reqIds": [
+        "REQ-4"
+      ],
+      "version": 1
+    },
+    {
+      "id": "feature-display-detected-potholes-in-the-metricspanel-with-count-and-closest-distance-information",
+      "title": "Display detected potholes in the MetricsPanel with count and closest distance information",
+      "reqIds": [
+        "REQ-5"
       ],
       "version": 1
     }
@@ -231,58 +50,12 @@
   "new_feature_requests": [
     {
       "id": "AR-1",
-      "summary": "Color-code driver alert status: red for warnings/danger and green when safe",
-      "reqIds": [],
-      "status": "pending"
-    },
-    {
-      "id": "AR-2",
-      "summary": "Improve detection metrics UI so road information is clearer and indicates when no objects are detected",
-      "reqIds": [],
-      "status": "pending"
-    },
-    {
-      "id": "AR-3",
-      "summary": "Improve road detection/segmentation to better detect curved roads (current system misses curves)",
+      "summary": "Pothole detection system that alerts users 50 meters before potholes",
       "reqIds": [],
       "status": "pending"
     }
   ],
-  "architecturalNotes": [
-    "Frontend: React + TypeScript single-page app with TanStack React Query for server state, caching, and invalidation; query keys used for history, events, and statistics.",
-    "UI: TailwindCSS + custom theme variables (OKLCH) + shadcn-style components; next-themes for dark/light theme switching.",
-    "Authentication/identity: Internet Identity integration via @dfinity/auth-client; actor is recreated per identity and dependent queries are invalidated/refetched on identity changes.",
-    "Backend: Motoko canister exposing shared (update) and query methods; in-canister Maps used as in-memory stores for detections/events/metrics/reports.",
-    "Binary data handling: Images/frames are passed as ExternalBlob (Blob) to the backend; frontend converts Uint8Array -> ExternalBlob.fromBytes for storage.",
-    "Blob lifecycle utilities: Included blob-storage mixin provides authorization, dead-blob listing, confirmation pruning, and cashier cycle top-up support via environment-configured cashier principal.",
-    "Client-side CV pipeline: Road segmentation and visualization implemented with Canvas/OffscreenCanvas; obstacle and speed-limit detection implemented with heuristic image processing (color/contrast segmentation, flood fill, circularity tests, pattern heuristics).",
-    "Performance-aware processing: Hardware capability detection (OffscreenCanvas, WebGL, CPU cores, deviceMemory) influences preprocessing level (full/balanced/fast) and live-frame throttling; live FPS is measured using Performance API.",
-    "Event model: Separate storage for detection results, obstacle events, emergency events, and speed limit detections; detection statistics aggregated server-side and fetched periodically for live updates.",
-    "Reporting: PDF/spec report generation is implemented client-side by opening a new window with a styled HTML report and using browser print-to-PDF."
-  ],
-  "knownIssues": [
-    "Potential bug: roadDetection morphologicalDilate/morphologicalErode derive width/height using Math.sqrt(length), implicitly assuming a square mask; for arbitrary image sizes this can produce incorrect morphology results.",
-    "Potential bug: applyEnvironmentalAdaptation calls morphologicalClose/dilate with dimensions computed from sqrt(mask.length) or passes mask.length as “width”; inconsistent signatures likely cause incorrect adaptation in non-square inputs.",
-    "Backend stats logic: getDetectionStatistics returns all-zero stats when detectionResults.size()==0 OR obstacleEventList.size()==0, which hides valid detection-only stats (e.g., detections exist but no obstacles).",
-    "Backend stats bug: averageProcessingTime is computed from result.metrics.systemPerformance.cpuUtilization (not from processing time), so it is mislabeled/miscomputed.",
-    "Backend analytics limitation: getEnvironmentalAnalysis uses the first result’s conditions as “most common” lighting/weather/roadType/surfaceQuality; no real aggregation of common values.",
-    "Security limitation: backend store* methods do not enforce any caller authorization/ownership; any caller can write into the canister state (unless restricted at deployment/ingress elsewhere).",
-    "Data durability: backend Maps are not declared stable; without stable structures/upgrade hooks, data may be lost across canister upgrades.",
-    "Speed limit detection is non-deterministic/heuristic: detectSpeedFromPattern uses Math.random-weighted selection, so results are not reproducible and may be inaccurate.",
-    "ID generation uses Date.now() in multiple places (obstacle/emergency IDs and detection IDs); rapid events can collide under high throughput or across clients.",
-    "Frontend styling duplication: both frontend/src/index.css and frontend/index.css exist with different theme variable sets, which can cause confusion and build/maintenance issues depending on bundler inclusion.",
-    "Live camera pipeline uses frequent getImageData/putImageData and dataURL/blob creation; may be CPU/memory intensive on lower-end devices despite throttling.",
-    "Backend video upload endpoints (handleVideoUpload/getVideoProcessingStatus/updateCameraStatus) are stubbed and do not implement real server-side processing.",
-    "UI/UX issue: driver alert warnings are not clearly color-coded (should be red for warning/danger and green for safe).",
-    "Detection UX issue: detection metrics/road information is not clear, and the UI does not clearly communicate when no objects are detected.",
-    "Detection limitation/bug: current road detection does not reliably detect road curves (misses curved road regions)."
-  ],
-  "isFixRequest": true,
-  "generatedImages": [],
-  "gameProjectType": "none",
-  "projectName": "RoadDetect AI",
+  "projectName": "Road Safety Alert",
   "clarification_mode": "instant",
-  "clarification_rounds": 0,
-  "requiresBackendChanges": false,
-  "requiresFrontendChanges": true
+  "clarification_rounds": 0
 }

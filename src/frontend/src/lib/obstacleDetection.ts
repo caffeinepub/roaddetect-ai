@@ -273,33 +273,26 @@ function analyzeObstacleRegion(
 }
 
 function classifyObstacle(r: number, g: number, b: number, height: number, width: number): string {
-  const brightness = (r + g + b) / 3;
-  const aspectRatio = height / width;
-  
-  // Vehicle detection (typically wider than tall, various colors)
-  if (aspectRatio < 1.2 && height > 30) {
-    if (r > 150 && g < 100 && b < 100) return 'Red Vehicle';
-    if (b > 150 && r < 100 && g < 100) return 'Blue Vehicle';
-    if (brightness < 60) return 'Dark Vehicle';
-    if (brightness > 180) return 'Light Vehicle';
-    return 'Vehicle';
+  try {
+    const brightness = (r + g + b) / 3;
+    const aspectRatio = height / width;
+    
+    // Vehicle detection (typically wider than tall, various colors)
+    if (aspectRatio < 1.2 && height > 30) {
+      return 'Vehicle';
+    }
+    
+    // Pedestrian detection (taller than wide)
+    if (aspectRatio > 1.5 && aspectRatio < 3) {
+      return 'Pedestrian';
+    }
+    
+    // Debris or unknown objects
+    return 'Debris/Obstacle';
+  } catch (error) {
+    console.error('[ObstacleDetection] Classification error:', error);
+    return 'Unknown';
   }
-  
-  // Pedestrian detection (taller than wide)
-  if (aspectRatio > 1.5 && aspectRatio < 3) {
-    return 'Pedestrian';
-  }
-  
-  // Traffic signs (bright, small, square-ish)
-  if (brightness > 150 && height < 50 && Math.abs(aspectRatio - 1) < 0.3) {
-    return 'Traffic Sign';
-  }
-  
-  // Debris or unknown objects
-  if (brightness < 80) return 'Dark Object';
-  if (brightness > 180) return 'Bright Object';
-  
-  return 'Unknown Object';
 }
 
 function determineRiskLevel(
