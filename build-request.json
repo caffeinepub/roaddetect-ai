@@ -1,0 +1,165 @@
+{
+  "kind": "build_request",
+  "title": "Build accident detection system with manual reporting and AI image analysis",
+  "projectName": "Road Safety Alert",
+  "priority": "normal",
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "text": "Create a manual accident reporting interface that allows users to quickly report accidents they witness, capturing essential details like timestamp and description",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1",
+          "msg-2",
+          "msg-3"
+        ],
+        "quotes": [
+          "users manually report accidents they see"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Users can access a report accident button or form",
+        "Form captures accident description and timestamp",
+        "Form integrates with location marking from the interactive map",
+        "Submission stores the accident report to the backend"
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "text": "Implement image upload functionality that allows users to upload accident scene photos for AI-powered analysis to detect and confirm accidents",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1",
+          "msg-2",
+          "msg-3"
+        ],
+        "quotes": [
+          "the system to analyze uploaded accident scene images"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Users can upload one or multiple images of accident scenes",
+        "Image upload supports drag-and-drop and file selection",
+        "Uploaded images are processed for accident detection",
+        "Detection results are displayed to the user with confidence scores",
+        "Successfully analyzed accidents are stored to the backend with images"
+      ]
+    },
+    {
+      "id": "REQ-3",
+      "text": "Add AI-powered accident scene analysis that processes uploaded images using multimodal vision to detect vehicles, damage, debris, and other accident indicators",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1",
+          "msg-2",
+          "msg-3"
+        ],
+        "quotes": [
+          "accident detection like the system to analyze uploaded accident scene images"
+        ]
+      },
+      "acceptanceCriteria": [
+        "System analyzes uploaded images for accident-related features (damaged vehicles, debris, emergency response)",
+        "Analysis returns a confidence score indicating likelihood of accident",
+        "Detection identifies key accident indicators visible in the scene",
+        "Results are presented to the user before storing to backend"
+      ]
+    },
+    {
+      "id": "REQ-4",
+      "text": "Create an interactive map component with pin-dropping functionality that allows users to mark the precise location where an accident occurred",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-4",
+          "msg-5"
+        ],
+        "quotes": [
+          "Drop a pin on an interactive map"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Map displays an interactive view where users can drop pins",
+        "Users can click or tap on the map to place an accident location marker",
+        "Placed pins capture coordinates or location data",
+        "Location data is included when submitting accident reports",
+        "Map works with simulated location data since real GPS is not available"
+      ]
+    },
+    {
+      "id": "REQ-5",
+      "text": "Extend the Motoko backend to store accident records including detection method (manual or AI-analyzed), location coordinates, timestamp, images, description, and analysis results",
+      "target": "backend",
+      "source": {
+        "messageIds": [
+          "msg-5",
+          "msg-6",
+          "msg-7"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Backend defines an AccidentEvent type with fields for location, timestamp, detection method, images, description, and AI analysis results",
+        "Backend provides methods to store new accident events",
+        "Backend provides methods to retrieve all stored accident events",
+        "Accident images are stored using the existing blob storage system",
+        "All accident data persists across canister upgrades"
+      ]
+    },
+    {
+      "id": "REQ-6",
+      "text": "Create an accident history view that displays all reported accidents with their locations, images, detection method, and timestamps in a list or grid format",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-5",
+          "msg-6",
+          "msg-7"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Users can view a list of all reported accidents",
+        "Each accident entry shows location, timestamp, detection method (manual/AI), and thumbnail images",
+        "Users can click on an accident to view full details",
+        "List updates when new accidents are reported"
+      ]
+    },
+    {
+      "id": "REQ-7",
+      "text": "Design a cohesive visual theme with emergency-focused color palette (red, amber, white, dark grays), clear typography for high-visibility alerts, and consistent layout patterns across accident reporting, map, and history views",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-initial"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Application uses a safety-focused color scheme emphasizing urgency and clarity",
+        "Typography is highly legible for quick scanning of accident information",
+        "Layout patterns create clear visual hierarchy between reporting, viewing, and mapping interfaces",
+        "Design conveys seriousness and reliability appropriate for accident detection"
+      ]
+    }
+  ],
+  "constraints": [
+    "Do not modify immutable frontend paths: frontend/src/hooks/useInternetIdentity.ts, frontend/src/hooks/useActor.ts, frontend/src/main.tsx, frontend/src/components/ui",
+    "Use single-actor architecture in Motoko backend with all logic in backend/main.mo",
+    "Real GPS/geolocation is not available; use simulated location data or manual coordinate input",
+    "Do not integrate external AI services; use client-side multimodal vision analysis",
+    "Do not create driver alert system or 100-meter proximity warnings (explicitly removed from scope)"
+  ],
+  "nonGoals": [
+    "Real-time driver alerts based on proximity to accidents",
+    "100-meter warning radius functionality",
+    "Live GPS tracking or navigation features",
+    "Integration with external mapping services or APIs",
+    "Real-time accident notifications or push alerts",
+    "Multi-user collaboration or shared accident reporting"
+  ],
+  "imageRequirements": {
+    "required": [],
+    "edits": []
+  }
+}

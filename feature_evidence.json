@@ -1,0 +1,142 @@
+{
+  "kind": "feature_evidence_report",
+  "features": [
+    {
+      "featureId": "feature-create-a-manual-accident-reporting-interface-that-allows-users-to-quickly-report-accidents-they-witness-capturing-essential-details-like-timestamp-and-description",
+      "featureTitle": "Create a manual accident reporting interface that allows users to quickly report accidents they witness, capturing essential details like timestamp and description",
+      "files": [
+        "frontend/src/components/AccidentReportDialog.tsx",
+        "frontend/src/components/Header.tsx",
+        "frontend/src/hooks/useAccidentMutations.ts"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-1"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-implement-image-upload-functionality-that-allows-users-to-upload-accident-scene-photos-for-ai-powered-analysis-to-detect-and-confirm-accidents",
+      "featureTitle": "Implement image upload functionality that allows users to upload accident scene photos for AI-powered analysis to detect and confirm accidents",
+      "files": [
+        "frontend/src/components/AccidentImageUpload.tsx",
+        "frontend/src/components/AccidentReportDialog.tsx"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-2"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-add-ai-powered-accident-scene-analysis-that-processes-uploaded-images-using-multimodal-vision-to-detect-vehicles-damage-debris-and-other-accident-indicators",
+      "featureTitle": "Add AI-powered accident scene analysis that processes uploaded images using multimodal vision to detect vehicles, damage, debris, and other accident indicators",
+      "files": [
+        "frontend/src/components/AccidentAnalysisResults.tsx",
+        "frontend/src/components/AccidentReportDialog.tsx",
+        "frontend/src/lib/accidentAnalysis.ts"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-3"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-create-an-interactive-map-component-with-pin-dropping-functionality-that-allows-users-to-mark-the-precise-location-where-an-accident-occurred",
+      "featureTitle": "Create an interactive map component with pin-dropping functionality that allows users to mark the precise location where an accident occurred",
+      "files": [
+        "frontend/src/components/AccidentLocationMap.tsx",
+        "frontend/src/components/AccidentReportDialog.tsx"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-4"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-create-an-accident-history-view-that-displays-all-reported-accidents-with-their-locations-images-detection-method-and-timestamps-in-a-list-or-grid-format",
+      "featureTitle": "Create an accident history view that displays all reported accidents with their locations, images, detection method, and timestamps in a list or grid format",
+      "files": [
+        "frontend/src/components/AccidentDetailView.tsx",
+        "frontend/src/components/AccidentHistoryList.tsx",
+        "frontend/src/hooks/useAccidentQueries.ts",
+        "frontend/src/pages/AccidentHistoryPage.tsx",
+        "frontend/src/pages/RoadDetectionApp.tsx"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-6"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-design-a-cohesive-visual-theme-with-emergency-focused-color-palette-red-amber-white-dark-grays-clear-typography-for-high-visibility-alerts-and-consistent-layout-patterns-across-accident-reporting-map-and-history-views",
+      "featureTitle": "Design a cohesive visual theme with emergency-focused color palette (red, amber, white, dark grays), clear typography for high-visibility alerts, and consistent layout patterns across accident reporting, map, and history views",
+      "files": [
+        "frontend/src/index.css",
+        "frontend/tailwind.config.js"
+      ],
+      "components": [
+        "blob-storage@4.0.0",
+        "camera@1.0.0",
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0",
+        "authorization@4.0.0"
+      ],
+      "testIds": [
+        "REQ-7"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

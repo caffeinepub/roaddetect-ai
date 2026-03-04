@@ -1,0 +1,171 @@
+{
+  "kind": "implementation_plan",
+  "version": "1.0",
+  "title": "Road Safety Alert - Accident Detection System Frontend",
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "summary": "Create a manual accident reporting interface that allows users to quickly report accidents they witness, capturing essential details like timestamp and description",
+      "acceptanceCriteria": [
+        "Users can access a report accident button or form",
+        "Form captures accident description and timestamp",
+        "Form integrates with location marking from the interactive map",
+        "Submission stores the accident report to the backend"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/AccidentReportDialog.tsx",
+          "operation": "create",
+          "description": "Create a dialog component for manual accident reporting. Include a form with fields for description (textarea), automatic timestamp capture, and location selection integration. Use the camera component to optionally capture accident scene photos. Wire the dialog to call backend's addAccidentRecord method with DetectionMethod.manual. Verify the camera component's usage instructions before implementing."
+        },
+        {
+          "path": "frontend/src/hooks/useAccidentMutations.ts",
+          "operation": "create",
+          "description": "Create React Query mutation hooks for submitting accident reports. Include useAddAccidentRecord mutation that calls backend.addAccidentRecord with proper error handling and success toast notifications. Handle ExternalBlob conversion for uploaded images using the blob-storage component."
+        },
+        {
+          "path": "frontend/src/components/Header.tsx",
+          "operation": "modify",
+          "description": "Replace the existing ReportDialog button with AccidentReportDialog trigger button. Use an AlertTriangle icon and 'Report Accident' label. Position it prominently in the header for quick access."
+        }
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "summary": "Implement image upload functionality that allows users to upload accident scene photos for AI-powered analysis to detect and confirm accidents",
+      "acceptanceCriteria": [
+        "Users can upload one or multiple images of accident scenes",
+        "Image upload supports drag-and-drop and file selection",
+        "Uploaded images are processed for accident detection",
+        "Detection results are displayed to the user with confidence scores",
+        "Successfully analyzed accidents are stored to the backend with images"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/AccidentImageUpload.tsx",
+          "operation": "create",
+          "description": "Create an image upload component with drag-and-drop support for accident scene photos. Allow multiple image selection. Display upload progress using ExternalBlob.withUploadProgress from the blob-storage component. Show thumbnails of selected images before analysis. Verify the blob-storage component's usage instructions before implementing."
+        },
+        {
+          "path": "frontend/src/components/AccidentReportDialog.tsx",
+          "operation": "modify",
+          "description": "Integrate AccidentImageUpload component and camera capture option within the dialog. Allow users to either upload existing photos or capture new ones using the camera component. Include a toggle or tabs to switch between upload and camera modes. Verify the camera component's usage instructions before implementing."
+        }
+      ]
+    },
+    {
+      "id": "REQ-3",
+      "summary": "Add AI-powered accident scene analysis that processes uploaded images using multimodal vision to detect vehicles, damage, debris, and other accident indicators",
+      "acceptanceCriteria": [
+        "System analyzes uploaded images for accident-related features (damaged vehicles, debris, emergency response)",
+        "Analysis returns a confidence score indicating likelihood of accident",
+        "Detection identifies key accident indicators visible in the scene",
+        "Results are presented to the user before storing to backend"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/lib/accidentAnalysis.ts",
+          "operation": "create",
+          "description": "Create a client-side accident scene analysis module using multimodal vision techniques. Implement detection for damaged vehicles, debris, emergency vehicles, broken glass, skid marks, and other accident indicators. Return a confidence score (0-1), list of detected indicators, and analysis summary text. Use canvas-based image processing similar to existing road detection logic."
+        },
+        {
+          "path": "frontend/src/components/AccidentAnalysisResults.tsx",
+          "operation": "create",
+          "description": "Create a component to display accident analysis results. Show confidence score with color-coded indicator (red for high confidence, amber for medium, gray for low). List detected accident indicators with icons. Display the analyzed image with visual overlays highlighting detected features. Include a 'Confirm and Submit' button to store the accident record to the backend."
+        },
+        {
+          "path": "frontend/src/components/AccidentReportDialog.tsx",
+          "operation": "modify",
+          "description": "Integrate accident analysis flow: after images are uploaded or captured, automatically run accidentAnalysis on each image. Display AccidentAnalysisResults component showing the detection results. Allow users to review results before final submission. Wire the confirm action to call the backend with DetectionMethod.aiAnalyzed and include analysisResults text."
+        }
+      ]
+    },
+    {
+      "id": "REQ-4",
+      "summary": "Create an interactive map component with pin-dropping functionality that allows users to mark the precise location where an accident occurred",
+      "acceptanceCriteria": [
+        "Map displays an interactive view where users can drop pins",
+        "Users can click or tap on the map to place an accident location marker",
+        "Placed pins capture coordinates or location data",
+        "Location data is included when submitting accident reports",
+        "Map works with simulated location data since real GPS is not available"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/AccidentLocationMap.tsx",
+          "operation": "create",
+          "description": "Create an interactive map component using a canvas-based or SVG-based simple map renderer (no external mapping APIs). Display a grid-based coordinate system representing a local area. Allow users to click/tap to place a pin marker. Capture latitude/longitude coordinates (simulated) and display them. Include a 'Clear Pin' button to remove the marker. Store selected location in component state and expose via callback prop."
+        },
+        {
+          "path": "frontend/src/components/AccidentReportDialog.tsx",
+          "operation": "modify",
+          "description": "Integrate AccidentLocationMap component in the dialog. Display the map below the description field. Make location selection required before submission. Pass the selected location coordinates to the addAccidentRecord backend method. Show the selected coordinates as text for user confirmation."
+        }
+      ]
+    },
+    {
+      "id": "REQ-6",
+      "summary": "Create an accident history view that displays all reported accidents with their locations, images, detection method, and timestamps in a list or grid format",
+      "acceptanceCriteria": [
+        "Users can view a list of all reported accidents",
+        "Each accident entry shows location, timestamp, detection method (manual/AI), and thumbnail images",
+        "Users can click on an accident to view full details",
+        "List updates when new accidents are reported"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/hooks/useAccidentQueries.ts",
+          "operation": "create",
+          "description": "Create React Query hooks for fetching accident records. Include useGetAllAccidentRecords query that calls backend.getAllAccidentRecords and useGetAccidentRecord query for fetching individual records by ID. Configure proper query keys and enable automatic refetching."
+        },
+        {
+          "path": "frontend/src/components/AccidentHistoryList.tsx",
+          "operation": "create",
+          "description": "Create a list/grid view component that displays all accident records. Show each accident as a card with thumbnail images (using ExternalBlob.getDirectURL from blob-storage), location coordinates, timestamp (formatted), detection method badge (manual vs AI-analyzed), and confidence score if available. Include click handlers to open full details. Use the authorization component to restrict viewing to authenticated users. Verify the blob-storage component's usage instructions before implementing."
+        },
+        {
+          "path": "frontend/src/components/AccidentDetailView.tsx",
+          "operation": "create",
+          "description": "Create a detail view component for individual accident records. Display full-resolution images in a gallery, complete location information, full description, analysis results (if AI-analyzed), and all metadata. Include a back button to return to the list. Show the AccidentLocationMap component with the accident pin pre-placed."
+        },
+        {
+          "path": "frontend/src/pages/AccidentHistoryPage.tsx",
+          "operation": "create",
+          "description": "Create a page component that renders the accident history interface. Include AccidentHistoryList by default and conditionally render AccidentDetailView when an accident is selected. Manage routing state for detail view navigation. Add a page header with 'Accident History' title."
+        },
+        {
+          "path": "frontend/src/pages/RoadDetectionApp.tsx",
+          "operation": "modify",
+          "description": "Replace or modify the existing tabbed interface to include an 'Accident Reports' tab that renders the AccidentHistoryPage component. Keep the existing Live Camera and Image Upload tabs. Remove the History placeholder tab if it exists. Ensure accident history tab is accessible to authenticated users only."
+        }
+      ]
+    },
+    {
+      "id": "REQ-7",
+      "summary": "Design a cohesive visual theme with emergency-focused color palette (red, amber, white, dark grays), clear typography for high-visibility alerts, and consistent layout patterns across accident reporting, map, and history views",
+      "acceptanceCriteria": [
+        "Application uses a safety-focused color scheme emphasizing urgency and clarity",
+        "Typography is highly legible for quick scanning of accident information",
+        "Layout patterns create clear visual hierarchy between reporting, viewing, and mapping interfaces",
+        "Design conveys seriousness and reliability appropriate for accident detection"
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/index.css",
+          "operation": "modify",
+          "description": "Extend the existing OKLCH color system to add emergency-focused palette variables. Add CSS custom properties for --emergency-red, --warning-amber, --alert-text, and --emergency-bg using appropriate OKLCH values. Keep existing theme variables intact. Add utility classes for emergency states (.emergency-alert, .warning-alert) with high-contrast colors."
+        },
+        {
+          "path": "frontend/tailwind.config.js",
+          "operation": "modify",
+          "description": "Extend the Tailwind theme configuration to include emergency color tokens. Map the new CSS custom properties (--emergency-red, --warning-amber) to Tailwind utility classes (bg-emergency, text-emergency, border-warning, etc.). Add custom font weight utilities for bold alert text (font-alert). Keep existing configuration intact."
+        },
+        {
+          "path": "frontend/src/components/EmergencyThemeLayout.tsx",
+          "operation": "create",
+          "description": "Create a layout wrapper component that applies emergency-focused styling to accident reporting interfaces. Use high-visibility typography (larger font sizes, bold weights), increased contrast ratios, and consistent spacing patterns. Apply emergency color palette to critical UI elements like submit buttons, alerts, and status indicators. Use this wrapper in AccidentReportDialog and AccidentDetailView components."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "kind": "coverage_report",
+  "version": "1.0",
+  "generatedAt": "2026-02-18T16:54:29.047Z",
+  "sources": {
+    "buildRequest": true,
+    "implementationPlan": true
+  },
+  "requirements": {
+    "total": 7,
+    "implemented": 6,
+    "items": [
+      {
+        "id": "REQ-1",
+        "summary": "Create a manual accident reporting interface that allows users to quickly report accidents they witness, capturing essential details like timestamp and description",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/components/AccidentReportDialog.tsx",
+          "frontend/src/hooks/useAccidentMutations.ts",
+          "frontend/src/components/Header.tsx"
+        ],
+        "matchedFiles": [
+          "frontend/src/components/AccidentReportDialog.tsx",
+          "frontend/src/hooks/useAccidentMutations.ts",
+          "frontend/src/components/Header.tsx"
+        ]
+      },
+      {
+        "id": "REQ-2",
+        "summary": "Implement image upload functionality that allows users to upload accident scene photos for AI-powered analysis to detect and confirm accidents",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/components/AccidentImageUpload.tsx",
+          "frontend/src/components/AccidentReportDialog.tsx"
+        ],
+        "matchedFiles": [
+          "frontend/src/components/AccidentImageUpload.tsx",
+          "frontend/src/components/AccidentReportDialog.tsx"
+        ]
+      },
+      {
+        "id": "REQ-3",
+        "summary": "Add AI-powered accident scene analysis that processes uploaded images using multimodal vision to detect vehicles, damage, debris, and other accident indicators",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/lib/accidentAnalysis.ts",
+          "frontend/src/components/AccidentAnalysisResults.tsx",
+          "frontend/src/components/AccidentReportDialog.tsx"
+        ],
+        "matchedFiles": [
+          "frontend/src/lib/accidentAnalysis.ts",
+          "frontend/src/components/AccidentAnalysisResults.tsx",
+          "frontend/src/components/AccidentReportDialog.tsx"
+        ]
+      },
+      {
+        "id": "REQ-4",
+        "summary": "Create an interactive map component with pin-dropping functionality that allows users to mark the precise location where an accident occurred",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/components/AccidentLocationMap.tsx",
+          "frontend/src/components/AccidentReportDialog.tsx"
+        ],
+        "matchedFiles": [
+          "frontend/src/components/AccidentLocationMap.tsx",
+          "frontend/src/components/AccidentReportDialog.tsx"
+        ]
+      },
+      {
+        "id": "REQ-5",
+        "summary": "Extend the Motoko backend to store accident records including detection method (manual or AI-analyzed), location coordinates, timestamp, images, description, and analysis results",
+        "status": "unknown",
+        "plannedFiles": [],
+        "matchedFiles": []
+      },
+      {
+        "id": "REQ-6",
+        "summary": "Create an accident history view that displays all reported accidents with their locations, images, detection method, and timestamps in a list or grid format",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/hooks/useAccidentQueries.ts",
+          "frontend/src/components/AccidentHistoryList.tsx",
+          "frontend/src/components/AccidentDetailView.tsx",
+          "frontend/src/pages/AccidentHistoryPage.tsx",
+          "frontend/src/pages/RoadDetectionApp.tsx"
+        ],
+        "matchedFiles": [
+          "frontend/src/hooks/useAccidentQueries.ts",
+          "frontend/src/components/AccidentHistoryList.tsx",
+          "frontend/src/components/AccidentDetailView.tsx",
+          "frontend/src/pages/AccidentHistoryPage.tsx",
+          "frontend/src/pages/RoadDetectionApp.tsx"
+        ]
+      },
+      {
+        "id": "REQ-7",
+        "summary": "Design a cohesive visual theme with emergency-focused color palette (red, amber, white, dark grays), clear typography for high-visibility alerts, and consistent layout patterns across accident reporting, map, and history views",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/index.css",
+          "frontend/tailwind.config.js",
+          "frontend/src/components/EmergencyThemeLayout.tsx"
+        ],
+        "matchedFiles": [
+          "frontend/src/index.css",
+          "frontend/tailwind.config.js"
+        ]
+      }
+    ]
+  },
+  "changedFiles": [
+    "backend/main.mo",
+    "backend/migration.mo",
+    "build-request.json",
+    "feature_evidence.json",
+    "frontend-file-summaries.txt",
+    "frontend-implementation-plan.json",
+    "frontend/src/backend.d.ts",
+    "frontend/src/backend.ts",
+    "frontend/src/components/AccidentAnalysisResults.tsx",
+    "frontend/src/components/AccidentDetailView.tsx",
+    "frontend/src/components/AccidentHistoryList.tsx",
+    "frontend/src/components/AccidentImageUpload.tsx",
+    "frontend/src/components/AccidentLocationMap.tsx",
+    "frontend/src/components/AccidentReportDialog.tsx",
+    "frontend/src/components/Header.tsx",
+    "frontend/src/components/ReportDialog.tsx",
+    "frontend/src/declarations/backend.did.d.ts",
+    "frontend/src/declarations/backend.did.js",
+    "frontend/src/hooks/useAccidentMutations.ts",
+    "frontend/src/hooks/useAccidentQueries.ts",
+    "frontend/src/index.css",
+    "frontend/src/lib/accidentAnalysis.ts",
+    "frontend/src/pages/AccidentHistoryPage.tsx",
+    "frontend/src/pages/RoadDetectionApp.tsx",
+    "frontend/tailwind.config.js",
+    "project_state.json",
+    "scratch/component-selection.json",
+    "spec.md",
+    "spec_vs_diff_report.json"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectStateVersion": 3,
+  "summary": "Accident detection system with dual input: manual reporting and AI-powered image analysis of accident scenes, with interactive map for location marking",
+  "architectural_notes": [
+    "Uses multimodal vision AI for accident scene image analysis",
+    "Interactive map with simulated location data (no real GPS)",
+    "Motoko backend for accident record storage",
+    "Dual detection: manual reports + AI image analysis"
+  ],
+  "known_issues": [],
+  "isFixRequest": false,
+  "existing_features": [
+    {
+      "id": "feature-create-a-manual-accident-reporting-interface-that-allows-users-to-quickly-report-accidents-they-witness-capturing-essential-details-like-timestamp-and-description",
+      "title": "Create a manual accident reporting interface that allows users to quickly report accidents they witness, capturing essential details like timestamp and description",
+      "reqIds": [
+        "REQ-1"
+      ],
+      "version": 1
+    },
+    {
+      "id": "feature-implement-image-upload-functionality-that-allows-users-to-upload-accident-scene-photos-for-ai-powered-analysis-to-detect-and-confirm-accidents",
+      "title": "Implement image upload functionality that allows users to upload accident scene photos for AI-powered analysis to detect and confirm accidents",
+      "reqIds": [
+        "REQ-2"
+      ],
+      "version": 1
+    },
+    {
+      "id": "feature-add-ai-powered-accident-scene-analysis-that-processes-uploaded-images-using-multimodal-vision-to-detect-vehicles-damage-debris-and-other-accident-indicators",
+      "title": "Add AI-powered accident scene analysis that processes uploaded images using multimodal vision to detect vehicles, damage, debris, and other accident indicators",
+      "reqIds": [
+        "REQ-3"
+      ],
+      "version": 1
+    },
+    {
+      "id": "feature-create-an-interactive-map-component-with-pin-dropping-functionality-that-allows-users-to-mark-the-precise-location-where-an-accident-occurred",
+      "title": "Create an interactive map component with pin-dropping functionality that allows users to mark the precise location where an accident occurred",
+      "reqIds": [
+        "REQ-4"
+      ],
+      "version": 1
+    },
+    {
+      "id": "feature-create-an-accident-history-view-that-displays-all-reported-accidents-with-their-locations-images-detection-method-and-timestamps-in-a-list-or-grid-format",
+      "title": "Create an accident history view that displays all reported accidents with their locations, images, detection method, and timestamps in a list or grid format",
+      "reqIds": [
+        "REQ-6"
+      ],
+      "version": 1
+    },
+    {
+      "id": "feature-design-a-cohesive-visual-theme-with-emergency-focused-color-palette-red-amber-white-dark-grays-clear-typography-for-high-visibility-alerts-and-consistent-layout-patterns-across-accident-reporting-map-and-history-views",
+      "title": "Design a cohesive visual theme with emergency-focused color palette (red, amber, white, dark grays), clear typography for high-visibility alerts, and consistent layout patterns across accident reporting, map, and history views",
+      "reqIds": [
+        "REQ-7"
+      ],
+      "version": 1
+    }
+  ],
+  "new_feature_requests": [
+    {
+      "id": "AR-1",
+      "summary": "Manual accident reporting interface",
+      "reqIds": [],
+      "status": "pending"
+    },
+    {
+      "id": "AR-2",
+      "summary": "Image upload with AI analysis for accident scene detection",
+      "reqIds": [],
+      "status": "pending"
+    },
+    {
+      "id": "AR-3",
+      "summary": "Interactive map with pin-dropping for accident location marking",
+      "reqIds": [],
+      "status": "pending"
+    },
+    {
+      "id": "AR-4",
+      "summary": "Motoko backend accident database storage",
+      "reqIds": [],
+      "status": "pending"
+    },
+    {
+      "id": "AR-9",
+      "summary": "Extend the Motoko backend to store accident records including detection method (manual or AI-analyzed), location coordinates, timestamp, images, description, and analysis results",
+      "reqIds": [
+        "REQ-5"
+      ],
+      "status": "pending"
+    }
+  ],
+  "projectName": "Road Safety Alert",
+  "clarification_mode": "instant",
+  "clarification_rounds": 0
+}
