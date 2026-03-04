@@ -38,11 +38,18 @@ export interface PotholeDetection {
     height: number;
   };
   distance: number; // estimated distance in meters
-  severity: 'Low' | 'Moderate' | 'High';
+  severity: "Low" | "Moderate" | "High";
   size: number; // estimated size in square meters
   depth: number; // estimated depth in cm
   confidenceLevel: number;
-  potholeType: 'surface_cracks' | 'rough_size' | 'deep' | 'edge' | 'pavement' | 'complex' | 'unknown';
+  potholeType:
+    | "surface_cracks"
+    | "rough_size"
+    | "deep"
+    | "edge"
+    | "pavement"
+    | "complex"
+    | "unknown";
 }
 
 export interface RoadSurfaceFeatures {
@@ -62,7 +69,12 @@ export interface RoadSurfaceFeatures {
   damage: {
     potholeScore: number;
     crackScore: number;
-    damageLocations: Array<{ x: number; y: number; type: string; severity: number }>;
+    damageLocations: Array<{
+      x: number;
+      y: number;
+      type: string;
+      severity: number;
+    }>;
     visualizationUrl: string | null;
   };
   wetSurface: {
@@ -82,7 +94,7 @@ export interface ObstacleInfo {
   type: string;
   confidenceLevel: number;
   riskLevel: {
-    level: 'High' | 'Moderate' | 'Low';
+    level: "High" | "Moderate" | "Low";
     description: string;
   };
   boundingBox: {
@@ -91,7 +103,7 @@ export interface ObstacleInfo {
     width: number;
     height: number;
   };
-  motion?: 'Static' | 'Moving';
+  motion?: "Static" | "Moving";
 }
 
 export interface EmergencyCondition {
@@ -99,7 +111,7 @@ export interface EmergencyCondition {
   type: string;
   description: string;
   severity: {
-    level: 'Critical' | 'Warning' | 'Info';
+    level: "Critical" | "Warning" | "Info";
     urgency: string;
   };
 }

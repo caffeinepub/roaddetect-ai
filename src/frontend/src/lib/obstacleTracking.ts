@@ -8,7 +8,7 @@ export interface TrackedObstacle {
   type: string;
   confidenceLevel: number;
   riskLevel: {
-    level: 'High' | 'Moderate' | 'Low';
+    level: "High" | "Moderate" | "Low";
     description: string;
   };
   boundingBox: {
@@ -17,7 +17,7 @@ export interface TrackedObstacle {
     width: number;
     height: number;
   };
-  motion: 'Static' | 'Moving';
+  motion: "Static" | "Moving";
 }
 
 export interface TrackingState {
@@ -54,7 +54,7 @@ export function trackObstacles(
     type: string;
     confidenceLevel: number;
     riskLevel: {
-      level: 'High' | 'Moderate' | 'Low';
+      level: "High" | "Moderate" | "Low";
       description: string;
     };
     boundingBox: {
@@ -64,18 +64,21 @@ export function trackObstacles(
       height: number;
     };
   }>,
-  previousState: TrackingState
+  previousState: TrackingState,
 ): { trackedObstacles: TrackedObstacle[]; newState: TrackingState } {
   try {
     const trackedObstacles: TrackedObstacle[] = [];
-    const currentObstacleData: TrackingState['previousObstacles'] = [];
+    const currentObstacleData: TrackingState["previousObstacles"] = [];
 
     // If this is the first frame or no previous obstacles, mark all as Static
-    if (previousState.frameCount === 0 || previousState.previousObstacles.length === 0) {
+    if (
+      previousState.frameCount === 0 ||
+      previousState.previousObstacles.length === 0
+    ) {
       for (const obstacle of currentObstacles) {
         trackedObstacles.push({
           ...obstacle,
-          motion: 'Static',
+          motion: "Static",
         });
 
         // Store for next frame
@@ -98,22 +101,22 @@ export function trackObstacles(
     // Match current obstacles with previous frame
     for (const obstacle of currentObstacles) {
       const currentCentroid = calculateCentroid(obstacle.boundingBox);
-      
+
       // Find best match from previous frame
       const match = findBestMatch(
         obstacle.boundingBox,
         currentCentroid,
-        previousState.previousObstacles
+        previousState.previousObstacles,
       );
 
-      let motion: 'Static' | 'Moving' = 'Static';
+      let motion: "Static" | "Moving" = "Static";
 
       if (match) {
         // Calculate displacement
         const displacement = calculateDistance(currentCentroid, match.centroid);
         const movementThreshold = 5; // pixels - adjust based on frame rate and resolution
 
-        motion = displacement > movementThreshold ? 'Moving' : 'Static';
+        motion = displacement > movementThreshold ? "Moving" : "Static";
       }
 
       trackedObstacles.push({
@@ -137,12 +140,12 @@ export function trackObstacles(
       },
     };
   } catch (error) {
-    console.error('[ObstacleTracking] Tracking error:', error);
-    
+    console.error("[ObstacleTracking] Tracking error:", error);
+
     // Fallback: return all obstacles as Static
-    const fallbackObstacles = currentObstacles.map(obstacle => ({
+    const fallbackObstacles = currentObstacles.map((obstacle) => ({
       ...obstacle,
-      motion: 'Static' as const,
+      motion: "Static" as const,
     }));
 
     return {
@@ -175,7 +178,7 @@ function calculateCentroid(boundingBox: {
  */
 function calculateDistance(
   p1: { x: number; y: number },
-  p2: { x: number; y: number }
+  p2: { x: number; y: number },
 ): number {
   const dx = p1.x - p2.x;
   const dy = p1.y - p2.y;
@@ -187,7 +190,7 @@ function calculateDistance(
  */
 function calculateIoU(
   box1: { x: number; y: number; width: number; height: number },
-  box2: { x: number; y: number; width: number; height: number }
+  box2: { x: number; y: number; width: number; height: number },
 ): number {
   const x1 = Math.max(box1.x, box2.x);
   const y1 = Math.max(box1.y, box2.y);
@@ -211,17 +214,17 @@ function calculateIoU(
 function findBestMatch(
   currentBox: { x: number; y: number; width: number; height: number },
   currentCentroid: { x: number; y: number },
-  previousObstacles: TrackingState['previousObstacles']
-): TrackingState['previousObstacles'][0] | null {
+  previousObstacles: TrackingState["previousObstacles"],
+): TrackingState["previousObstacles"][0] | null {
   if (previousObstacles.length === 0) return null;
 
-  let bestMatch: TrackingState['previousObstacles'][0] | null = null;
+  let bestMatch: TrackingState["previousObstacles"][0] | null = null;
   let bestScore = 0;
 
   for (const prevObstacle of previousObstacles) {
     // Calculate IoU
     const iou = calculateIoU(currentBox, prevObstacle.boundingBox);
-    
+
     // Calculate centroid distance (normalized)
     const distance = calculateDistance(currentCentroid, prevObstacle.centroid);
     const maxDistance = 200; // Maximum expected movement between frames

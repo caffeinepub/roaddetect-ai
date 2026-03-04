@@ -107,6 +107,11 @@ export interface ObstacleEvent {
     potholeDetails?: PotholeDetails;
     classification: Classification;
 }
+export interface Location {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+}
 export type Time = bigint;
 export interface Classification {
     motion: MotionType;
@@ -114,6 +119,10 @@ export interface Classification {
 }
 export interface _CaffeineStorageRefillInformation {
     proposed_top_up_amount?: bigint;
+}
+export interface _CaffeineStorageCreateCertificateResult {
+    method: string;
+    blob_hash: string;
 }
 export interface PotholeDetails {
     potholeType: PotholeType;
@@ -128,9 +137,14 @@ export interface PotholeDetails {
         accuracy: number;
     };
 }
-export interface _CaffeineStorageCreateCertificateResult {
-    method: string;
-    blob_hash: string;
+export interface AccidentRecord {
+    id: string;
+    description: string;
+    timestamp: Time;
+    location: Location;
+    detectionMethod: DetectionMethod;
+    analysisResults?: string;
+    images: Array<ExternalBlob>;
 }
 export interface UserProfile {
     name: string;
@@ -138,6 +152,10 @@ export interface UserProfile {
 export interface _CaffeineStorageRefillResult {
     success?: boolean;
     topped_up_amount?: bigint;
+}
+export enum DetectionMethod {
+    aiAnalyzed = "aiAnalyzed",
+    manual = "manual"
 }
 export enum MotionType {
     static_ = "static",
@@ -171,6 +189,7 @@ export interface backendInterface {
     _caffeineStorageRefillCashier(refillInformation: _CaffeineStorageRefillInformation | null): Promise<_CaffeineStorageRefillResult>;
     _caffeineStorageUpdateGatewayPrincipals(): Promise<void>;
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
+    addAccidentRecord(id: string, method: DetectionMethod, location: Location, timestamp: Time, images: Array<ExternalBlob>, description: string, analysisResults: string | null): Promise<void>;
     addPotholeSpecificEvent(id: string, position: {
         x: number;
         y: number;
@@ -179,6 +198,8 @@ export interface backendInterface {
         level: string;
     }, potholeDetails: PotholeDetails): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    getAccidentRecord(id: string): Promise<AccidentRecord>;
+    getAllAccidentRecords(): Promise<Array<AccidentRecord>>;
     getAllObstacleEvents(): Promise<Array<ObstacleEvent>>;
     getAllPotholeEvents(): Promise<Array<ObstacleEvent>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
@@ -195,7 +216,7 @@ export interface backendInterface {
         level: string;
     }, classification: Classification, potholeDetails: PotholeDetails | null): Promise<void>;
 }
-import type { Classification as _Classification, ExternalBlob as _ExternalBlob, MotionType as _MotionType, ObjectType as _ObjectType, ObstacleEvent as _ObstacleEvent, PotholeDetails as _PotholeDetails, PotholeType as _PotholeType, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
+import type { AccidentRecord as _AccidentRecord, Classification as _Classification, DetectionMethod as _DetectionMethod, ExternalBlob as _ExternalBlob, Location as _Location, MotionType as _MotionType, ObjectType as _ObjectType, ObstacleEvent as _ObstacleEvent, PotholeDetails as _PotholeDetails, PotholeType as _PotholeType, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async _caffeineStorageBlobIsLive(arg0: Uint8Array): Promise<boolean> {
@@ -296,6 +317,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async addAccidentRecord(arg0: string, arg1: DetectionMethod, arg2: Location, arg3: Time, arg4: Array<ExternalBlob>, arg5: string, arg6: string | null): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addAccidentRecord(arg0, to_candid_DetectionMethod_n8(this._uploadFile, this._downloadFile, arg1), arg2, arg3, await to_candid_vec_n10(this._uploadFile, this._downloadFile, arg4), arg5, to_candid_opt_n12(this._uploadFile, this._downloadFile, arg6));
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addAccidentRecord(arg0, to_candid_DetectionMethod_n8(this._uploadFile, this._downloadFile, arg1), arg2, arg3, await to_candid_vec_n10(this._uploadFile, this._downloadFile, arg4), arg5, to_candid_opt_n12(this._uploadFile, this._downloadFile, arg6));
+            return result;
+        }
+    }
     async addPotholeSpecificEvent(arg0: string, arg1: {
         x: number;
         y: number;
@@ -305,113 +340,141 @@ export class Backend implements backendInterface {
     }, arg7: PotholeDetails): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.addPotholeSpecificEvent(arg0, arg1, arg2, arg3, arg4, await to_candid_ExternalBlob_n8(this._uploadFile, this._downloadFile, arg5), arg6, to_candid_PotholeDetails_n9(this._uploadFile, this._downloadFile, arg7));
+                const result = await this.actor.addPotholeSpecificEvent(arg0, arg1, arg2, arg3, arg4, await to_candid_ExternalBlob_n11(this._uploadFile, this._downloadFile, arg5), arg6, to_candid_PotholeDetails_n13(this._uploadFile, this._downloadFile, arg7));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.addPotholeSpecificEvent(arg0, arg1, arg2, arg3, arg4, await to_candid_ExternalBlob_n8(this._uploadFile, this._downloadFile, arg5), arg6, to_candid_PotholeDetails_n9(this._uploadFile, this._downloadFile, arg7));
+            const result = await this.actor.addPotholeSpecificEvent(arg0, arg1, arg2, arg3, arg4, await to_candid_ExternalBlob_n11(this._uploadFile, this._downloadFile, arg5), arg6, to_candid_PotholeDetails_n13(this._uploadFile, this._downloadFile, arg7));
             return result;
         }
     }
     async assignCallerUserRole(arg0: Principal, arg1: UserRole): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n13(this._uploadFile, this._downloadFile, arg1));
+                const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n17(this._uploadFile, this._downloadFile, arg1));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n13(this._uploadFile, this._downloadFile, arg1));
+            const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n17(this._uploadFile, this._downloadFile, arg1));
             return result;
+        }
+    }
+    async getAccidentRecord(arg0: string): Promise<AccidentRecord> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAccidentRecord(arg0);
+                return from_candid_AccidentRecord_n19(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAccidentRecord(arg0);
+            return from_candid_AccidentRecord_n19(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getAllAccidentRecords(): Promise<Array<AccidentRecord>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllAccidentRecords();
+                return from_candid_vec_n26(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllAccidentRecords();
+            return from_candid_vec_n26(this._uploadFile, this._downloadFile, result);
         }
     }
     async getAllObstacleEvents(): Promise<Array<ObstacleEvent>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getAllObstacleEvents();
-                return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n27(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getAllObstacleEvents();
-            return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n27(this._uploadFile, this._downloadFile, result);
         }
     }
     async getAllPotholeEvents(): Promise<Array<ObstacleEvent>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getAllPotholeEvents();
-                return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n27(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getAllPotholeEvents();
-            return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n27(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserProfile(): Promise<UserProfile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserProfile();
-                return from_candid_opt_n30(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n41(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserProfile();
-            return from_candid_opt_n30(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n41(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserRole(): Promise<UserRole> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserRole();
-                return from_candid_UserRole_n31(this._uploadFile, this._downloadFile, result);
+                return from_candid_UserRole_n42(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserRole();
-            return from_candid_UserRole_n31(this._uploadFile, this._downloadFile, result);
+            return from_candid_UserRole_n42(this._uploadFile, this._downloadFile, result);
         }
     }
     async getObstacleEvent(arg0: string): Promise<ObstacleEvent> {
         if (this.processError) {
             try {
                 const result = await this.actor.getObstacleEvent(arg0);
-                return from_candid_ObstacleEvent_n16(this._uploadFile, this._downloadFile, result);
+                return from_candid_ObstacleEvent_n28(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getObstacleEvent(arg0);
-            return from_candid_ObstacleEvent_n16(this._uploadFile, this._downloadFile, result);
+            return from_candid_ObstacleEvent_n28(this._uploadFile, this._downloadFile, result);
         }
     }
     async getUserProfile(arg0: Principal): Promise<UserProfile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getUserProfile(arg0);
-                return from_candid_opt_n30(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n41(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getUserProfile(arg0);
-            return from_candid_opt_n30(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n41(this._uploadFile, this._downloadFile, result);
         }
     }
     async isCallerAdmin(): Promise<boolean> {
@@ -451,49 +514,58 @@ export class Backend implements backendInterface {
     }, arg8: Classification, arg9: PotholeDetails | null): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.storeObstacleEvent(arg0, arg1, arg2, arg3, arg4, arg5, await to_candid_ExternalBlob_n8(this._uploadFile, this._downloadFile, arg6), arg7, to_candid_Classification_n33(this._uploadFile, this._downloadFile, arg8), to_candid_opt_n39(this._uploadFile, this._downloadFile, arg9));
+                const result = await this.actor.storeObstacleEvent(arg0, arg1, arg2, arg3, arg4, arg5, await to_candid_ExternalBlob_n11(this._uploadFile, this._downloadFile, arg6), arg7, to_candid_Classification_n44(this._uploadFile, this._downloadFile, arg8), to_candid_opt_n50(this._uploadFile, this._downloadFile, arg9));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.storeObstacleEvent(arg0, arg1, arg2, arg3, arg4, arg5, await to_candid_ExternalBlob_n8(this._uploadFile, this._downloadFile, arg6), arg7, to_candid_Classification_n33(this._uploadFile, this._downloadFile, arg8), to_candid_opt_n39(this._uploadFile, this._downloadFile, arg9));
+            const result = await this.actor.storeObstacleEvent(arg0, arg1, arg2, arg3, arg4, arg5, await to_candid_ExternalBlob_n11(this._uploadFile, this._downloadFile, arg6), arg7, to_candid_Classification_n44(this._uploadFile, this._downloadFile, arg8), to_candid_opt_n50(this._uploadFile, this._downloadFile, arg9));
             return result;
         }
     }
 }
-function from_candid_Classification_n24(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Classification): Classification {
-    return from_candid_record_n25(_uploadFile, _downloadFile, value);
+async function from_candid_AccidentRecord_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _AccidentRecord): Promise<AccidentRecord> {
+    return await from_candid_record_n20(_uploadFile, _downloadFile, value);
 }
-async function from_candid_ExternalBlob_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ExternalBlob): Promise<ExternalBlob> {
+function from_candid_Classification_n35(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Classification): Classification {
+    return from_candid_record_n36(_uploadFile, _downloadFile, value);
+}
+function from_candid_DetectionMethod_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _DetectionMethod): DetectionMethod {
+    return from_candid_variant_n22(_uploadFile, _downloadFile, value);
+}
+async function from_candid_ExternalBlob_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ExternalBlob): Promise<ExternalBlob> {
     return await _downloadFile(value);
 }
-function from_candid_MotionType_n26(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _MotionType): MotionType {
-    return from_candid_variant_n27(_uploadFile, _downloadFile, value);
+function from_candid_MotionType_n37(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _MotionType): MotionType {
+    return from_candid_variant_n38(_uploadFile, _downloadFile, value);
 }
-function from_candid_ObjectType_n28(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ObjectType): ObjectType {
-    return from_candid_variant_n29(_uploadFile, _downloadFile, value);
+function from_candid_ObjectType_n39(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ObjectType): ObjectType {
+    return from_candid_variant_n40(_uploadFile, _downloadFile, value);
 }
-async function from_candid_ObstacleEvent_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ObstacleEvent): Promise<ObstacleEvent> {
-    return await from_candid_record_n17(_uploadFile, _downloadFile, value);
+async function from_candid_ObstacleEvent_n28(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ObstacleEvent): Promise<ObstacleEvent> {
+    return await from_candid_record_n29(_uploadFile, _downloadFile, value);
 }
-function from_candid_PotholeDetails_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _PotholeDetails): PotholeDetails {
-    return from_candid_record_n21(_uploadFile, _downloadFile, value);
+function from_candid_PotholeDetails_n31(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _PotholeDetails): PotholeDetails {
+    return from_candid_record_n32(_uploadFile, _downloadFile, value);
 }
-function from_candid_PotholeType_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _PotholeType): PotholeType {
-    return from_candid_variant_n23(_uploadFile, _downloadFile, value);
+function from_candid_PotholeType_n33(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _PotholeType): PotholeType {
+    return from_candid_variant_n34(_uploadFile, _downloadFile, value);
 }
-function from_candid_UserRole_n31(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
-    return from_candid_variant_n32(_uploadFile, _downloadFile, value);
+function from_candid_UserRole_n42(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
+    return from_candid_variant_n43(_uploadFile, _downloadFile, value);
 }
 function from_candid__CaffeineStorageRefillResult_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: __CaffeineStorageRefillResult): _CaffeineStorageRefillResult {
     return from_candid_record_n5(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_PotholeDetails]): PotholeDetails | null {
-    return value.length === 0 ? null : from_candid_PotholeDetails_n20(_uploadFile, _downloadFile, value[0]);
+function from_candid_opt_n23(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
+    return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n30(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
+function from_candid_opt_n30(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_PotholeDetails]): PotholeDetails | null {
+    return value.length === 0 ? null : from_candid_PotholeDetails_n31(_uploadFile, _downloadFile, value[0]);
+}
+function from_candid_opt_n41(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
     return value.length === 0 ? null : value[0];
 }
 function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [boolean]): boolean | null {
@@ -502,7 +574,34 @@ function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Ar
 function from_candid_opt_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
     return value.length === 0 ? null : value[0];
 }
-async function from_candid_record_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+async function from_candid_record_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    id: string;
+    description: string;
+    timestamp: _Time;
+    location: _Location;
+    detectionMethod: _DetectionMethod;
+    analysisResults: [] | [string];
+    images: Array<_ExternalBlob>;
+}): Promise<{
+    id: string;
+    description: string;
+    timestamp: Time;
+    location: Location;
+    detectionMethod: DetectionMethod;
+    analysisResults?: string;
+    images: Array<ExternalBlob>;
+}> {
+    return {
+        id: value.id,
+        description: value.description,
+        timestamp: value.timestamp,
+        location: value.location,
+        detectionMethod: from_candid_DetectionMethod_n21(_uploadFile, _downloadFile, value.detectionMethod),
+        analysisResults: record_opt_to_undefined(from_candid_opt_n23(_uploadFile, _downloadFile, value.analysisResults)),
+        images: await from_candid_vec_n24(_uploadFile, _downloadFile, value.images)
+    };
+}
+async function from_candid_record_n29(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: string;
     type: string;
     confidenceLevel: number;
@@ -543,14 +642,14 @@ async function from_candid_record_n17(_uploadFile: (file: ExternalBlob) => Promi
         confidenceLevel: value.confidenceLevel,
         timestamp: value.timestamp,
         associatedDetectionId: value.associatedDetectionId,
-        image: await from_candid_ExternalBlob_n18(_uploadFile, _downloadFile, value.image),
+        image: await from_candid_ExternalBlob_n25(_uploadFile, _downloadFile, value.image),
         position: value.position,
         riskLevel: value.riskLevel,
-        potholeDetails: record_opt_to_undefined(from_candid_opt_n19(_uploadFile, _downloadFile, value.potholeDetails)),
-        classification: from_candid_Classification_n24(_uploadFile, _downloadFile, value.classification)
+        potholeDetails: record_opt_to_undefined(from_candid_opt_n30(_uploadFile, _downloadFile, value.potholeDetails)),
+        classification: from_candid_Classification_n35(_uploadFile, _downloadFile, value.classification)
     };
 }
-function from_candid_record_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n32(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     potholeType: _PotholeType;
     image_url: string;
     distance_from_vehicle: number;
@@ -576,7 +675,7 @@ function from_candid_record_n21(_uploadFile: (file: ExternalBlob) => Promise<Uin
     };
 } {
     return {
-        potholeType: from_candid_PotholeType_n22(_uploadFile, _downloadFile, value.potholeType),
+        potholeType: from_candid_PotholeType_n33(_uploadFile, _downloadFile, value.potholeType),
         image_url: value.image_url,
         distance_from_vehicle: value.distance_from_vehicle,
         createdAt: value.createdAt,
@@ -586,7 +685,7 @@ function from_candid_record_n21(_uploadFile: (file: ExternalBlob) => Promise<Uin
         location: value.location
     };
 }
-function from_candid_record_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n36(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     motion: _MotionType;
     objectType: _ObjectType;
 }): {
@@ -594,8 +693,8 @@ function from_candid_record_n25(_uploadFile: (file: ExternalBlob) => Promise<Uin
     objectType: ObjectType;
 } {
     return {
-        motion: from_candid_MotionType_n26(_uploadFile, _downloadFile, value.motion),
-        objectType: from_candid_ObjectType_n28(_uploadFile, _downloadFile, value.objectType)
+        motion: from_candid_MotionType_n37(_uploadFile, _downloadFile, value.motion),
+        objectType: from_candid_ObjectType_n39(_uploadFile, _downloadFile, value.objectType)
     };
 }
 function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
@@ -610,7 +709,14 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
         topped_up_amount: record_opt_to_undefined(from_candid_opt_n7(_uploadFile, _downloadFile, value.topped_up_amount))
     };
 }
-function from_candid_variant_n23(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    aiAnalyzed: null;
+} | {
+    manual: null;
+}): DetectionMethod {
+    return "aiAnalyzed" in value ? DetectionMethod.aiAnalyzed : "manual" in value ? DetectionMethod.manual : value;
+}
+function from_candid_variant_n34(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     deep: null;
 } | {
     edge: null;
@@ -627,14 +733,14 @@ function from_candid_variant_n23(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): PotholeType {
     return "deep" in value ? PotholeType.deep : "edge" in value ? PotholeType.edge : "pavement" in value ? PotholeType.pavement : "complex" in value ? PotholeType.complex : "rough_size" in value ? PotholeType.rough_size : "surface_cracks" in value ? PotholeType.surface_cracks : "unknown" in value ? PotholeType.unknown : value;
 }
-function from_candid_variant_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n38(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     static: null;
 } | {
     moving: null;
 }): MotionType {
     return "static" in value ? MotionType.static : "moving" in value ? MotionType.moving : value;
 }
-function from_candid_variant_n29(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n40(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     pedestrian: null;
 } | {
     debris: null;
@@ -645,7 +751,7 @@ function from_candid_variant_n29(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): ObjectType {
     return "pedestrian" in value ? ObjectType.pedestrian : "debris" in value ? ObjectType.debris : "vehicle" in value ? ObjectType.vehicle : "unknown" in value ? ObjectType.unknown : value;
 }
-function from_candid_variant_n32(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n43(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     admin: null;
 } | {
     user: null;
@@ -654,29 +760,38 @@ function from_candid_variant_n32(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): UserRole {
     return "admin" in value ? UserRole.admin : "user" in value ? UserRole.user : "guest" in value ? UserRole.guest : value;
 }
-async function from_candid_vec_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ObstacleEvent>): Promise<Array<ObstacleEvent>> {
-    return await Promise.all(value.map(async (x)=>await from_candid_ObstacleEvent_n16(_uploadFile, _downloadFile, x)));
+async function from_candid_vec_n24(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ExternalBlob>): Promise<Array<ExternalBlob>> {
+    return await Promise.all(value.map(async (x)=>await from_candid_ExternalBlob_n25(_uploadFile, _downloadFile, x)));
 }
-function to_candid_Classification_n33(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Classification): _Classification {
-    return to_candid_record_n34(_uploadFile, _downloadFile, value);
+async function from_candid_vec_n26(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_AccidentRecord>): Promise<Array<AccidentRecord>> {
+    return await Promise.all(value.map(async (x)=>await from_candid_AccidentRecord_n19(_uploadFile, _downloadFile, x)));
 }
-async function to_candid_ExternalBlob_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ExternalBlob): Promise<_ExternalBlob> {
+async function from_candid_vec_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ObstacleEvent>): Promise<Array<ObstacleEvent>> {
+    return await Promise.all(value.map(async (x)=>await from_candid_ObstacleEvent_n28(_uploadFile, _downloadFile, x)));
+}
+function to_candid_Classification_n44(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Classification): _Classification {
+    return to_candid_record_n45(_uploadFile, _downloadFile, value);
+}
+function to_candid_DetectionMethod_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: DetectionMethod): _DetectionMethod {
+    return to_candid_variant_n9(_uploadFile, _downloadFile, value);
+}
+async function to_candid_ExternalBlob_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ExternalBlob): Promise<_ExternalBlob> {
     return await _uploadFile(value);
 }
-function to_candid_MotionType_n35(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: MotionType): _MotionType {
-    return to_candid_variant_n36(_uploadFile, _downloadFile, value);
+function to_candid_MotionType_n46(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: MotionType): _MotionType {
+    return to_candid_variant_n47(_uploadFile, _downloadFile, value);
 }
-function to_candid_ObjectType_n37(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ObjectType): _ObjectType {
-    return to_candid_variant_n38(_uploadFile, _downloadFile, value);
+function to_candid_ObjectType_n48(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ObjectType): _ObjectType {
+    return to_candid_variant_n49(_uploadFile, _downloadFile, value);
 }
-function to_candid_PotholeDetails_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeDetails): _PotholeDetails {
-    return to_candid_record_n10(_uploadFile, _downloadFile, value);
+function to_candid_PotholeDetails_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeDetails): _PotholeDetails {
+    return to_candid_record_n14(_uploadFile, _downloadFile, value);
 }
-function to_candid_PotholeType_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeType): _PotholeType {
-    return to_candid_variant_n12(_uploadFile, _downloadFile, value);
+function to_candid_PotholeType_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeType): _PotholeType {
+    return to_candid_variant_n16(_uploadFile, _downloadFile, value);
 }
-function to_candid_UserRole_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
-    return to_candid_variant_n14(_uploadFile, _downloadFile, value);
+function to_candid_UserRole_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
+    return to_candid_variant_n18(_uploadFile, _downloadFile, value);
 }
 function to_candid__CaffeineStorageRefillInformation_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _CaffeineStorageRefillInformation): __CaffeineStorageRefillInformation {
     return to_candid_record_n3(_uploadFile, _downloadFile, value);
@@ -684,10 +799,13 @@ function to_candid__CaffeineStorageRefillInformation_n2(_uploadFile: (file: Exte
 function to_candid_opt_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _CaffeineStorageRefillInformation | null): [] | [__CaffeineStorageRefillInformation] {
     return value === null ? candid_none() : candid_some(to_candid__CaffeineStorageRefillInformation_n2(_uploadFile, _downloadFile, value));
 }
-function to_candid_opt_n39(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeDetails | null): [] | [_PotholeDetails] {
-    return value === null ? candid_none() : candid_some(to_candid_PotholeDetails_n9(_uploadFile, _downloadFile, value));
+function to_candid_opt_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: string | null): [] | [string] {
+    return value === null ? candid_none() : candid_some(value);
 }
-function to_candid_record_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function to_candid_opt_n50(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeDetails | null): [] | [_PotholeDetails] {
+    return value === null ? candid_none() : candid_some(to_candid_PotholeDetails_n13(_uploadFile, _downloadFile, value));
+}
+function to_candid_record_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     potholeType: PotholeType;
     image_url: string;
     distance_from_vehicle: number;
@@ -713,7 +831,7 @@ function to_candid_record_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8
     };
 } {
     return {
-        potholeType: to_candid_PotholeType_n11(_uploadFile, _downloadFile, value.potholeType),
+        potholeType: to_candid_PotholeType_n15(_uploadFile, _downloadFile, value.potholeType),
         image_url: value.image_url,
         distance_from_vehicle: value.distance_from_vehicle,
         createdAt: value.createdAt,
@@ -732,7 +850,7 @@ function to_candid_record_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8A
         proposed_top_up_amount: value.proposed_top_up_amount ? candid_some(value.proposed_top_up_amount) : candid_none()
     };
 }
-function to_candid_record_n34(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function to_candid_record_n45(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     motion: MotionType;
     objectType: ObjectType;
 }): {
@@ -740,11 +858,11 @@ function to_candid_record_n34(_uploadFile: (file: ExternalBlob) => Promise<Uint8
     objectType: _ObjectType;
 } {
     return {
-        motion: to_candid_MotionType_n35(_uploadFile, _downloadFile, value.motion),
-        objectType: to_candid_ObjectType_n37(_uploadFile, _downloadFile, value.objectType)
+        motion: to_candid_MotionType_n46(_uploadFile, _downloadFile, value.motion),
+        objectType: to_candid_ObjectType_n48(_uploadFile, _downloadFile, value.objectType)
     };
 }
-function to_candid_variant_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeType): {
+function to_candid_variant_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PotholeType): {
     deep: null;
 } | {
     edge: null;
@@ -775,7 +893,7 @@ function to_candid_variant_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint
         unknown_: null
     } : value;
 }
-function to_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): {
+function to_candid_variant_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): {
     admin: null;
 } | {
     user: null;
@@ -790,7 +908,7 @@ function to_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint
         guest: null
     } : value;
 }
-function to_candid_variant_n36(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: MotionType): {
+function to_candid_variant_n47(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: MotionType): {
     static: null;
 } | {
     moving: null;
@@ -801,7 +919,7 @@ function to_candid_variant_n36(_uploadFile: (file: ExternalBlob) => Promise<Uint
         moving: null
     } : value;
 }
-function to_candid_variant_n38(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ObjectType): {
+function to_candid_variant_n49(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ObjectType): {
     pedestrian: null;
 } | {
     debris: null;
@@ -819,6 +937,20 @@ function to_candid_variant_n38(_uploadFile: (file: ExternalBlob) => Promise<Uint
     } : value == ObjectType.unknown ? {
         unknown_: null
     } : value;
+}
+function to_candid_variant_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: DetectionMethod): {
+    aiAnalyzed: null;
+} | {
+    manual: null;
+} {
+    return value == DetectionMethod.aiAnalyzed ? {
+        aiAnalyzed: null
+    } : value == DetectionMethod.manual ? {
+        manual: null
+    } : value;
+}
+async function to_candid_vec_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<ExternalBlob>): Promise<Array<_ExternalBlob>> {
+    return await Promise.all(value.map(async (x)=>await to_candid_ExternalBlob_n11(_uploadFile, _downloadFile, x)));
 }
 export interface CreateActorOptions {
     agent?: Agent;

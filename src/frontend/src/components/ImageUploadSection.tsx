@@ -1,12 +1,18 @@
-import { useState, useRef, useCallback } from 'react';
-import { Upload, Image as ImageIcon, Loader2, Sparkles } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
-import { processRoadDetection } from '@/lib/roadDetection';
-import DetectionResults from './DetectionResults';
-import { useStoreObstacleEvent } from '@/hooks/useQueries';
-import { ExternalBlob, ObjectType, MotionType } from '@/backend';
+import { ExternalBlob, MotionType, ObjectType } from "@/backend";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { useStoreObstacleEvent } from "@/hooks/useQueries";
+import { processRoadDetection } from "@/lib/roadDetection";
+import { Image as ImageIcon, Loader2, Sparkles, Upload } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { toast } from "sonner";
+import DetectionResults from "./DetectionResults";
 
 export default function ImageUploadSection() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -18,8 +24,8 @@ export default function ImageUploadSection() {
   const storeObstacleEvent = useStoreObstacleEvent();
 
   const handleFileSelect = useCallback((file: File) => {
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select a valid image file');
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file");
       return;
     }
 
@@ -39,7 +45,7 @@ export default function ImageUploadSection() {
         handleFileSelect(file);
       }
     },
-    [handleFileSelect]
+    [handleFileSelect],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -59,7 +65,7 @@ export default function ImageUploadSection() {
         handleFileSelect(file);
       }
     },
-    [handleFileSelect]
+    [handleFileSelect],
   );
 
   const processImage = async () => {
@@ -67,24 +73,34 @@ export default function ImageUploadSection() {
 
     setIsProcessing(true);
     try {
-      const result = await processRoadDetection(previewUrl, 'image', undefined, true);
+      const result = await processRoadDetection(
+        previewUrl,
+        "image",
+        undefined,
+        true,
+      );
       setDetectionResult(result);
 
       // Store obstacle detection results
-      if (result.obstacleDetection && result.obstacleDetection.obstacles.length > 0) {
+      if (
+        result.obstacleDetection &&
+        result.obstacleDetection.obstacles.length > 0
+      ) {
         for (const obstacle of result.obstacleDetection.obstacles) {
-          const obstacleBuffer = new ArrayBuffer(result.obstacleDetection.visualizationData.length);
+          const obstacleBuffer = new ArrayBuffer(
+            result.obstacleDetection.visualizationData.length,
+          );
           const obstacleView = new Uint8Array(obstacleBuffer);
           obstacleView.set(result.obstacleDetection.visualizationData);
           const obstacleBlob = ExternalBlob.fromBytes(obstacleView);
 
           // Map obstacle type to backend enum
           let objectType: ObjectType;
-          if (obstacle.type === 'Vehicle') {
+          if (obstacle.type === "Vehicle") {
             objectType = ObjectType.vehicle;
-          } else if (obstacle.type === 'Pedestrian') {
+          } else if (obstacle.type === "Pedestrian") {
             objectType = ObjectType.pedestrian;
-          } else if (obstacle.type === 'Debris/Obstacle') {
+          } else if (obstacle.type === "Debris/Obstacle") {
             objectType = ObjectType.debris;
           } else {
             objectType = ObjectType.unknown_;
@@ -110,10 +126,10 @@ export default function ImageUploadSection() {
         }
       }
 
-      toast.success('Road and obstacle detection completed successfully!');
+      toast.success("Road and obstacle detection completed successfully!");
     } catch (error) {
-      console.error('Detection error:', error);
-      toast.error('Failed to process image');
+      console.error("Detection error:", error);
+      toast.error("Failed to process image");
     } finally {
       setIsProcessing(false);
     }
@@ -128,27 +144,27 @@ export default function ImageUploadSection() {
             Upload Road Image
           </CardTitle>
           <CardDescription>
-            Upload an image to detect road regions, obstacles, and surface features with ML-powered analysis
+            Upload an image to detect road regions, obstacles, and surface
+            features with ML-powered analysis
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div
+          <label
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             className={`relative flex min-h-[320px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-300 ${
               isDragging
-                ? 'border-primary bg-primary/10 shadow-glow'
-                : 'border-border hover:border-primary/50 hover:bg-accent/30 hover:shadow-md'
+                ? "border-primary bg-primary/10 shadow-glow"
+                : "border-border hover:border-primary/50 hover:bg-accent/30 hover:shadow-md"
             }`}
-            onClick={() => fileInputRef.current?.click()}
           >
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
               onChange={handleFileInputChange}
-              className="hidden"
+              className="sr-only"
             />
 
             {previewUrl ? (
@@ -172,19 +188,21 @@ export default function ImageUploadSection() {
                 </div>
                 <div>
                   <p className="text-lg font-semibold">Drop your image here</p>
-                  <p className="text-sm text-muted-foreground">or click to browse</p>
+                  <p className="text-sm text-muted-foreground">
+                    or click to browse
+                  </p>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Supports: JPG, PNG, WebP
                 </p>
               </div>
             )}
-          </div>
+          </label>
 
           <Button
             onClick={processImage}
             disabled={!selectedFile || isProcessing}
-            className="w-full rounded-xl shadow-lg transition-all duration-300 hover:shadow-glow"
+            className="w-full rounded-xl shadow-lg transition-all duration-300 hover:shadow-glow border border-primary/60"
             size="lg"
           >
             {isProcessing ? (

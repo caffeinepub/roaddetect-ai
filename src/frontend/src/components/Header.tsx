@@ -1,7 +1,7 @@
-import { Moon, Sun, Activity } from 'lucide-react';
-import { useTheme } from 'next-themes';
-import { Button } from '@/components/ui/button';
-import ReportDialog from './ReportDialog';
+import { Button } from "@/components/ui/button";
+import { Activity, Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
+import AccidentReportDialog from "./AccidentReportDialog";
 
 export default function Header() {
   const { theme, setTheme } = useTheme();
@@ -19,13 +19,13 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-3">
-          <ReportDialog />
-          
+          <AccidentReportDialog />
+
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="btn-icon-align h-10 w-10 rounded-xl transition-colors duration-200 hover:bg-primary/10 motion-safe:hover:shadow-glow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="btn-icon-align h-10 w-10 rounded-xl transition-colors duration-200 hover:bg-primary/10 motion-safe:hover:shadow-glow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-primary/40"
             aria-label="Toggle theme"
           >
             <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

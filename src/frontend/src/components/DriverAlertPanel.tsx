@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, AlertCircle, ShieldAlert, Construction } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import type { ObstacleInfo, EmergencyCondition } from '@/types/detection';
-import type { PotholeDetection } from '@/types/detection';
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { EmergencyCondition, ObstacleInfo } from "@/types/detection";
+import type { PotholeDetection } from "@/types/detection";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Construction,
+  ShieldAlert,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface DriverAlertPanelProps {
   obstacles: ObstacleInfo[];
@@ -30,85 +35,95 @@ export default function DriverAlertPanel({
   // Initialize audio context
   useEffect(() => {
     if (soundEnabled && !audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContextRef.current = new (
+        window.AudioContext || (window as any).webkitAudioContext
+      )();
     }
   }, [soundEnabled]);
 
   // Play alert sound
-  const playAlertSound = (frequency: number, duration: number) => {
-    if (!soundEnabled || !audioContextRef.current) return;
+  const playAlertSound = useCallback(
+    (frequency: number, duration: number) => {
+      if (!soundEnabled || !audioContextRef.current) return;
 
-    try {
-      const ctx = audioContextRef.current;
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
+      try {
+        const ctx = audioContextRef.current;
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
 
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
 
-      oscillator.frequency.value = frequency;
-      oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        oscillator.type = "sine";
 
-      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+        gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.01,
+          ctx.currentTime + duration,
+        );
 
-      oscillator.start(ctx.currentTime);
-      oscillator.stop(ctx.currentTime + duration);
-    } catch (error) {
-      console.error('Audio playback error:', error);
-    }
-  };
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + duration);
+      } catch (error) {
+        console.error("Audio playback error:", error);
+      }
+    },
+    [soundEnabled],
+  );
 
   // Check for pothole alerts (within 50 meters)
   useEffect(() => {
     const now = Date.now();
     const alertThrottle = 3000; // 3 seconds between same type alerts
 
-    const nearbyPotholes = potholes.filter(p => p.distance <= 50);
+    const nearbyPotholes = potholes.filter((p) => p.distance <= 50);
 
     if (nearbyPotholes.length > 0) {
-      const alertKey = 'pothole';
+      const alertKey = "pothole";
       const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
 
       if (now - lastAlertTime > alertThrottle) {
         const closestPothole = nearbyPotholes.reduce((closest, current) =>
-          current.distance < closest.distance ? current : closest
+          current.distance < closest.distance ? current : closest,
         );
 
         const alertMessage = `Potholes on road - ${closestPothole.distance.toFixed(0)}m ahead`;
 
-        setActiveAlerts(prev => {
-          const filtered = prev.filter(a => !a.startsWith('Potholes on road'));
+        setActiveAlerts((prev) => {
+          const filtered = prev.filter(
+            (a) => !a.startsWith("Potholes on road"),
+          );
           return [alertMessage, ...filtered].slice(0, 5);
         });
 
         // Play alert sound based on severity
         let frequency = 600;
-        if (closestPothole.severity === 'High') frequency = 800;
-        else if (closestPothole.severity === 'Moderate') frequency = 700;
+        if (closestPothole.severity === "High") frequency = 800;
+        else if (closestPothole.severity === "Moderate") frequency = 700;
 
         playAlertSound(frequency, 0.3);
         lastAlertTimeRef.current[alertKey] = now;
       }
     }
-  }, [potholes, soundEnabled]);
+  }, [potholes, playAlertSound]);
 
   // Check for obstacle alerts
   useEffect(() => {
     const now = Date.now();
     const alertThrottle = 3000;
 
-    obstacles.forEach((obstacle) => {
-      if (obstacle.riskLevel.level === 'High') {
+    for (const obstacle of obstacles) {
+      if (obstacle.riskLevel.level === "High") {
         const alertKey = `obstacle_${obstacle.type}`;
         const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
 
         if (now - lastAlertTime > alertThrottle) {
-          const motionLabel = obstacle.motion ? ` • ${obstacle.motion}` : '';
+          const motionLabel = obstacle.motion ? ` • ${obstacle.motion}` : "";
           const alertMessage = `${obstacle.type}${motionLabel} detected - ${obstacle.riskLevel.description}`;
 
-          setActiveAlerts(prev => {
-            const filtered = prev.filter(a => !a.includes(obstacle.type));
+          setActiveAlerts((prev) => {
+            const filtered = prev.filter((a) => !a.includes(obstacle.type));
             return [alertMessage, ...filtered].slice(0, 5);
           });
 
@@ -116,24 +131,24 @@ export default function DriverAlertPanel({
           lastAlertTimeRef.current[alertKey] = now;
         }
       }
-    });
-  }, [obstacles, soundEnabled]);
+    }
+  }, [obstacles, playAlertSound]);
 
   // Check for emergency alerts
   useEffect(() => {
     const now = Date.now();
     const alertThrottle = 5000;
 
-    emergencyConditions.forEach((emergency) => {
-      if (emergency.severity.level === 'Critical') {
+    for (const emergency of emergencyConditions) {
+      if (emergency.severity.level === "Critical") {
         const alertKey = `emergency_${emergency.type}`;
         const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
 
         if (now - lastAlertTime > alertThrottle) {
           const alertMessage = `EMERGENCY: ${emergency.description}`;
 
-          setActiveAlerts(prev => {
-            const filtered = prev.filter(a => !a.includes(emergency.type));
+          setActiveAlerts((prev) => {
+            const filtered = prev.filter((a) => !a.includes(emergency.type));
             return [alertMessage, ...filtered].slice(0, 5);
           });
 
@@ -141,14 +156,14 @@ export default function DriverAlertPanel({
           lastAlertTimeRef.current[alertKey] = now;
         }
       }
-    });
-  }, [emergencyConditions, soundEnabled]);
+    }
+  }, [emergencyConditions, playAlertSound]);
 
   // Check for speed limit violations
   useEffect(() => {
     if (detectedSpeedLimit && currentSpeed > detectedSpeedLimit) {
       const now = Date.now();
-      const alertKey = 'speed_violation';
+      const alertKey = "speed_violation";
       const lastAlertTime = lastAlertTimeRef.current[alertKey] || 0;
       const alertThrottle = 5000;
 
@@ -156,8 +171,8 @@ export default function DriverAlertPanel({
         const overspeed = currentSpeed - detectedSpeedLimit;
         const alertMessage = `Speed limit exceeded by ${overspeed} km/h`;
 
-        setActiveAlerts(prev => {
-          const filtered = prev.filter(a => !a.includes('Speed limit'));
+        setActiveAlerts((prev) => {
+          const filtered = prev.filter((a) => !a.includes("Speed limit"));
           return [alertMessage, ...filtered].slice(0, 5);
         });
 
@@ -165,14 +180,23 @@ export default function DriverAlertPanel({
         lastAlertTimeRef.current[alertKey] = now;
       }
     }
-  }, [detectedSpeedLimit, currentSpeed, soundEnabled]);
+  }, [detectedSpeedLimit, currentSpeed, playAlertSound]);
 
-  const highRiskObstacles = obstacles.filter(o => o.riskLevel.level === 'High');
-  const criticalEmergencies = emergencyConditions.filter(e => e.severity.level === 'Critical');
-  const nearbyPotholes = potholes.filter(p => p.distance <= 50);
-  const speedViolation = detectedSpeedLimit && currentSpeed > detectedSpeedLimit;
+  const highRiskObstacles = obstacles.filter(
+    (o) => o.riskLevel.level === "High",
+  );
+  const criticalEmergencies = emergencyConditions.filter(
+    (e) => e.severity.level === "Critical",
+  );
+  const nearbyPotholes = potholes.filter((p) => p.distance <= 50);
+  const speedViolation =
+    detectedSpeedLimit && currentSpeed > detectedSpeedLimit;
 
-  const hasAlerts = highRiskObstacles.length > 0 || criticalEmergencies.length > 0 || nearbyPotholes.length > 0 || speedViolation;
+  const hasAlerts =
+    highRiskObstacles.length > 0 ||
+    criticalEmergencies.length > 0 ||
+    nearbyPotholes.length > 0 ||
+    speedViolation;
 
   return (
     <Card className="border-2 border-warning/30 bg-gradient-to-br from-background to-warning/5">
@@ -198,10 +222,15 @@ export default function DriverAlertPanel({
             <AlertDescription className="font-semibold text-warning">
               Potholes on road
               <div className="mt-1 text-sm font-normal">
-                {nearbyPotholes.length} pothole{nearbyPotholes.length > 1 ? 's' : ''} detected within 50m
+                {nearbyPotholes.length} pothole
+                {nearbyPotholes.length > 1 ? "s" : ""} detected within 50m
                 {nearbyPotholes.length > 0 && (
                   <span className="ml-2">
-                    • Closest: {Math.min(...nearbyPotholes.map(p => p.distance)).toFixed(0)}m ahead
+                    • Closest:{" "}
+                    {Math.min(...nearbyPotholes.map((p) => p.distance)).toFixed(
+                      0,
+                    )}
+                    m ahead
                   </span>
                 )}
               </div>
@@ -216,12 +245,17 @@ export default function DriverAlertPanel({
               High Risk Obstacles Detected
               <div className="mt-2 space-y-1">
                 {highRiskObstacles.slice(0, 3).map((obstacle) => (
-                  <div key={obstacle.id} className="flex items-center gap-2 text-sm font-normal">
+                  <div
+                    key={obstacle.id}
+                    className="flex items-center gap-2 text-sm font-normal"
+                  >
                     <Badge variant="destructive" className="text-xs">
                       {obstacle.type}
                       {obstacle.motion && ` • ${obstacle.motion}`}
                     </Badge>
-                    <span className="text-muted-foreground">{obstacle.riskLevel.description}</span>
+                    <span className="text-muted-foreground">
+                      {obstacle.riskLevel.description}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -262,9 +296,9 @@ export default function DriverAlertPanel({
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Recent Alerts
             </div>
-            {activeAlerts.map((alert, index) => (
+            {activeAlerts.map((alert) => (
               <div
-                key={index}
+                key={alert}
                 className="text-sm text-foreground/80 py-1 px-2 rounded bg-muted/30"
               >
                 {alert}

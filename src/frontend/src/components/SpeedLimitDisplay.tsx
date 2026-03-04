@@ -1,8 +1,8 @@
-import { Gauge, TrendingUp } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Gauge, TrendingUp } from "lucide-react";
 
 interface SpeedLimitDisplayProps {
   detectedSpeedLimit: number | null;
@@ -17,30 +17,32 @@ export default function SpeedLimitDisplay({
   currentSpeed,
   onSpeedChange,
 }: SpeedLimitDisplayProps) {
-  const isOverSpeed = detectedSpeedLimit !== null && currentSpeed > detectedSpeedLimit;
-  const isApproachingLimit = detectedSpeedLimit !== null && 
-    currentSpeed > detectedSpeedLimit * 0.9 && 
+  const isOverSpeed =
+    detectedSpeedLimit !== null && currentSpeed > detectedSpeedLimit;
+  const isApproachingLimit =
+    detectedSpeedLimit !== null &&
+    currentSpeed > detectedSpeedLimit * 0.9 &&
     currentSpeed <= detectedSpeedLimit;
 
   const getSpeedColor = () => {
-    if (isOverSpeed) return 'text-destructive';
-    if (isApproachingLimit) return 'text-chart-3';
-    return 'text-chart-1';
+    if (isOverSpeed) return "text-destructive";
+    if (isApproachingLimit) return "text-chart-3";
+    return "text-chart-1";
   };
 
   const getSpeedBgColor = () => {
-    if (isOverSpeed) return 'bg-destructive/10 border-destructive/50';
-    if (isApproachingLimit) return 'bg-chart-3/10 border-chart-3/50';
-    return 'bg-chart-1/10 border-chart-1/50';
+    if (isOverSpeed) return "bg-destructive/10 border-destructive/50";
+    if (isApproachingLimit) return "bg-chart-3/10 border-chart-3/50";
+    return "bg-chart-1/10 border-chart-1/50";
   };
 
   return (
     <Card className="card-enhanced">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
-          <img 
-            src="/assets/generated/speed-limit-icon-transparent.dim_200x200.png" 
-            alt="Speed Limit" 
+          <img
+            src="/assets/generated/speed-limit-icon-transparent.dim_200x200.png"
+            alt="Speed Limit"
             className="h-5 w-5"
           />
           Speed Limit Monitor
@@ -49,16 +51,23 @@ export default function SpeedLimitDisplay({
       <CardContent className="space-y-4">
         {/* Detected Speed Limit */}
         <div className="space-y-2">
-          <Label className="text-sm text-muted-foreground">Detected Speed Limit</Label>
+          <Label className="text-sm text-muted-foreground">
+            Detected Speed Limit
+          </Label>
           {detectedSpeedLimit !== null ? (
             <div className="rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-4 text-center shadow-inner">
               <div className="flex items-center justify-center gap-2">
                 <span className="text-4xl font-bold text-primary">
                   {detectedSpeedLimit}
                 </span>
-                <span className="text-lg font-medium text-muted-foreground">km/h</span>
+                <span className="text-lg font-medium text-muted-foreground">
+                  km/h
+                </span>
               </div>
-              <Badge variant="outline" className="mt-2 border-primary/50 text-primary">
+              <Badge
+                variant="outline"
+                className="mt-2 border-primary/50 text-primary"
+              >
                 {(speedLimitConfidence * 100).toFixed(0)}% confidence
               </Badge>
             </div>
@@ -76,7 +85,10 @@ export default function SpeedLimitDisplay({
 
         {/* Current Speed Input */}
         <div className="space-y-2">
-          <Label htmlFor="current-speed" className="text-sm text-muted-foreground">
+          <Label
+            htmlFor="current-speed"
+            className="text-sm text-muted-foreground"
+          >
             Current Vehicle Speed
           </Label>
           <div className="relative">
@@ -86,7 +98,9 @@ export default function SpeedLimitDisplay({
               min="0"
               max="200"
               value={currentSpeed}
-              onChange={(e) => onSpeedChange(Math.max(0, parseInt(e.target.value) || 0))}
+              onChange={(e) =>
+                onSpeedChange(Math.max(0, Number.parseInt(e.target.value) || 0))
+              }
               className="pr-16 text-lg font-semibold"
               placeholder="0"
             />
@@ -102,9 +116,9 @@ export default function SpeedLimitDisplay({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {isOverSpeed ? (
-                  <img 
-                    src="/assets/generated/speed-enforcement-icon-transparent.dim_64x64.png" 
-                    alt="Speed Warning" 
+                  <img
+                    src="/assets/generated/speed-enforcement-icon-transparent.dim_64x64.png"
+                    alt="Speed Warning"
                     className="h-6 w-6"
                   />
                 ) : (
@@ -112,11 +126,11 @@ export default function SpeedLimitDisplay({
                 )}
                 <div>
                   <p className={`text-sm font-semibold ${getSpeedColor()}`}>
-                    {isOverSpeed 
-                      ? 'SPEED LIMIT EXCEEDED' 
-                      : isApproachingLimit 
-                        ? 'Approaching Limit' 
-                        : 'Within Speed Limit'}
+                    {isOverSpeed
+                      ? "SPEED LIMIT EXCEEDED"
+                      : isApproachingLimit
+                        ? "Approaching Limit"
+                        : "Within Speed Limit"}
                   </p>
                   {isOverSpeed && (
                     <p className="text-xs text-destructive">
@@ -131,7 +145,10 @@ export default function SpeedLimitDisplay({
                 </Badge>
               )}
               {isApproachingLimit && (
-                <Badge variant="outline" className="border-chart-3 text-chart-3">
+                <Badge
+                  variant="outline"
+                  className="border-chart-3 text-chart-3"
+                >
                   CAUTION
                 </Badge>
               )}
@@ -155,11 +172,11 @@ export default function SpeedLimitDisplay({
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
               <div
                 className={`h-full transition-all duration-300 ${
-                  isOverSpeed 
-                    ? 'bg-destructive' 
-                    : isApproachingLimit 
-                      ? 'bg-chart-3' 
-                      : 'bg-chart-1'
+                  isOverSpeed
+                    ? "bg-destructive"
+                    : isApproachingLimit
+                      ? "bg-chart-3"
+                      : "bg-chart-1"
                 }`}
                 style={{
                   width: `${Math.min(100, (currentSpeed / (detectedSpeedLimit * 1.2)) * 100)}%`,

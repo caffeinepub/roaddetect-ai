@@ -10,11 +10,27 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface AccidentRecord {
+  'id' : string,
+  'description' : string,
+  'timestamp' : Time,
+  'location' : Location,
+  'detectionMethod' : DetectionMethod,
+  'analysisResults' : [] | [string],
+  'images' : Array<ExternalBlob>,
+}
 export interface Classification {
   'motion' : MotionType,
   'objectType' : ObjectType,
 }
+export type DetectionMethod = { 'aiAnalyzed' : null } |
+  { 'manual' : null };
 export type ExternalBlob = Uint8Array;
+export interface Location {
+  'latitude' : number,
+  'longitude' : number,
+  'accuracy' : number,
+}
 export type MotionType = { 'static' : null } |
   { 'moving' : null };
 export type ObjectType = { 'pedestrian' : null } |
@@ -83,6 +99,18 @@ export interface _SERVICE {
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addAccidentRecord' : ActorMethod<
+    [
+      string,
+      DetectionMethod,
+      Location,
+      Time,
+      Array<ExternalBlob>,
+      string,
+      [] | [string],
+    ],
+    undefined
+  >,
   'addPotholeSpecificEvent' : ActorMethod<
     [
       string,
@@ -97,6 +125,8 @@ export interface _SERVICE {
     undefined
   >,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'getAccidentRecord' : ActorMethod<[string], AccidentRecord>,
+  'getAllAccidentRecords' : ActorMethod<[], Array<AccidentRecord>>,
   'getAllObstacleEvents' : ActorMethod<[], Array<ObstacleEvent>>,
   'getAllPotholeEvents' : ActorMethod<[], Array<ObstacleEvent>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,

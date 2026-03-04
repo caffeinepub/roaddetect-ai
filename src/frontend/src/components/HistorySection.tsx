@@ -1,5 +1,5 @@
-import { Card, CardContent } from '@/components/ui/card';
-import { Image as ImageIcon } from 'lucide-react';
+import { Card, CardContent } from "@/components/ui/card";
+import { Image as ImageIcon } from "lucide-react";
 
 export default function HistorySection() {
   return (

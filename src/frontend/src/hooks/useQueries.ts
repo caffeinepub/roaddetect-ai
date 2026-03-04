@@ -1,7 +1,12 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useActor } from './useActor';
-import type { ObstacleEvent, Classification, PotholeDetails, PotholeType } from '@/backend';
-import { ExternalBlob } from '@/backend';
+import type {
+  Classification,
+  ObstacleEvent,
+  PotholeDetails,
+  PotholeType,
+} from "@/backend";
+import type { ExternalBlob } from "@/backend";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useActor } from "./useActor";
 
 export function useStoreObstacleEvent() {
   const { actor } = useActor();
@@ -20,7 +25,7 @@ export function useStoreObstacleEvent() {
       classification: Classification;
       potholeDetails?: PotholeDetails | null;
     }) => {
-      if (!actor) throw new Error('Actor not initialized');
+      if (!actor) throw new Error("Actor not initialized");
       return actor.storeObstacleEvent(
         params.id,
         params.position,
@@ -31,12 +36,12 @@ export function useStoreObstacleEvent() {
         params.image,
         params.riskLevel,
         params.classification,
-        params.potholeDetails || null
+        params.potholeDetails || null,
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['obstacleEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['potholeEvents'] });
+      queryClient.invalidateQueries({ queryKey: ["obstacleEvents"] });
+      queryClient.invalidateQueries({ queryKey: ["potholeEvents"] });
     },
   });
 }
@@ -68,7 +73,7 @@ export function useStorePotholeEvent() {
         createdAt: bigint;
       };
     }) => {
-      if (!actor) throw new Error('Actor not initialized');
+      if (!actor) throw new Error("Actor not initialized");
       return actor.addPotholeSpecificEvent(
         params.id,
         params.position,
@@ -77,12 +82,12 @@ export function useStorePotholeEvent() {
         params.associatedDetectionId,
         params.image,
         params.riskLevel,
-        params.potholeDetails
+        params.potholeDetails,
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['obstacleEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['potholeEvents'] });
+      queryClient.invalidateQueries({ queryKey: ["obstacleEvents"] });
+      queryClient.invalidateQueries({ queryKey: ["potholeEvents"] });
     },
   });
 }
@@ -91,7 +96,7 @@ export function useGetAllObstacleEvents() {
   const { actor, isFetching } = useActor();
 
   return useQuery<ObstacleEvent[]>({
-    queryKey: ['obstacleEvents'],
+    queryKey: ["obstacleEvents"],
     queryFn: async () => {
       if (!actor) return [];
       return actor.getAllObstacleEvents();
@@ -104,7 +109,7 @@ export function useGetAllPotholeEvents() {
   const { actor, isFetching } = useActor();
 
   return useQuery<ObstacleEvent[]>({
-    queryKey: ['potholeEvents'],
+    queryKey: ["potholeEvents"],
     queryFn: async () => {
       if (!actor) return [];
       return actor.getAllPotholeEvents();

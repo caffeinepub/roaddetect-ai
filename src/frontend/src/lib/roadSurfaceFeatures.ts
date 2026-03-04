@@ -24,7 +24,12 @@ export interface RoadSurfaceFeatures {
   damage: {
     potholeScore: number;
     crackScore: number;
-    damageLocations: Array<{ x: number; y: number; type: 'pothole' | 'crack'; severity: number }>;
+    damageLocations: Array<{
+      x: number;
+      y: number;
+      type: "pothole" | "crack";
+      severity: number;
+    }>;
     visualizationUrl: string | null;
   };
   wetSurface: {
@@ -42,49 +47,89 @@ export async function extractRoadSurfaceFeatures(
   width: number,
   height: number,
   roadMask: Uint8Array,
-  conditions: { lighting: string; weather: string }
+  conditions: { lighting: string; weather: string },
 ): Promise<RoadSurfaceFeatures> {
   const features: RoadSurfaceFeatures = {
-    segmentation: { mask: new Uint8Array(0), coverage: 0, visualizationUrl: null },
-    drivableArea: { mask: new Uint8Array(0), coverage: 0, visualizationUrl: null },
-    roadEdges: { edgeMap: new Uint8Array(0), edgeStrength: 0, edgeCount: 0, visualizationUrl: null },
-    damage: { potholeScore: 0, crackScore: 0, damageLocations: [], visualizationUrl: null },
-    wetSurface: { wetnessScore: 0, slipperinessScore: 0, visualizationUrl: null },
+    segmentation: {
+      mask: new Uint8Array(0),
+      coverage: 0,
+      visualizationUrl: null,
+    },
+    drivableArea: {
+      mask: new Uint8Array(0),
+      coverage: 0,
+      visualizationUrl: null,
+    },
+    roadEdges: {
+      edgeMap: new Uint8Array(0),
+      edgeStrength: 0,
+      edgeCount: 0,
+      visualizationUrl: null,
+    },
+    damage: {
+      potholeScore: 0,
+      crackScore: 0,
+      damageLocations: [],
+      visualizationUrl: null,
+    },
+    wetSurface: {
+      wetnessScore: 0,
+      slipperinessScore: 0,
+      visualizationUrl: null,
+    },
   };
 
   try {
     // 1. Road region segmentation
     features.segmentation = await computeSegmentation(roadMask, width, height);
   } catch (error) {
-    console.error('[RoadSurface] Segmentation failed:', error);
+    console.error("[RoadSurface] Segmentation failed:", error);
   }
 
   try {
     // 2. Drivable area detection
-    features.drivableArea = await computeDrivableArea(data, roadMask, width, height, conditions);
+    features.drivableArea = await computeDrivableArea(
+      data,
+      roadMask,
+      width,
+      height,
+      conditions,
+    );
   } catch (error) {
-    console.error('[RoadSurface] Drivable area failed:', error);
+    console.error("[RoadSurface] Drivable area failed:", error);
   }
 
   try {
     // 3. Road edge detection
     features.roadEdges = await computeRoadEdges(roadMask, width, height);
   } catch (error) {
-    console.error('[RoadSurface] Edge detection failed:', error);
+    console.error("[RoadSurface] Edge detection failed:", error);
   }
 
   try {
     // 4. Pothole and crack detection
-    features.damage = await computeDamageDetection(data, roadMask, width, height, conditions);
+    features.damage = await computeDamageDetection(
+      data,
+      roadMask,
+      width,
+      height,
+      conditions,
+    );
   } catch (error) {
-    console.error('[RoadSurface] Damage detection failed:', error);
+    console.error("[RoadSurface] Damage detection failed:", error);
   }
 
   try {
     // 5. Wet/slippery surface detection
-    features.wetSurface = await computeWetSurfaceDetection(data, roadMask, width, height, conditions);
+    features.wetSurface = await computeWetSurfaceDetection(
+      data,
+      roadMask,
+      width,
+      height,
+      conditions,
+    );
   } catch (error) {
-    console.error('[RoadSurface] Wet surface detection failed:', error);
+    console.error("[RoadSurface] Wet surface detection failed:", error);
   }
 
   return features;
@@ -96,8 +141,8 @@ export async function extractRoadSurfaceFeatures(
 async function computeSegmentation(
   roadMask: Uint8Array,
   width: number,
-  height: number
-): Promise<RoadSurfaceFeatures['segmentation']> {
+  height: number,
+): Promise<RoadSurfaceFeatures["segmentation"]> {
   const mask = new Uint8Array(roadMask);
   let roadPixels = 0;
 
@@ -106,7 +151,11 @@ async function computeSegmentation(
   }
 
   const coverage = roadPixels / mask.length;
-  const visualizationUrl = await createSegmentationVisualization(mask, width, height);
+  const visualizationUrl = await createSegmentationVisualization(
+    mask,
+    width,
+    height,
+  );
 
   return { mask, coverage, visualizationUrl };
 }
@@ -119,8 +168,8 @@ async function computeDrivableArea(
   roadMask: Uint8Array,
   width: number,
   height: number,
-  conditions: { lighting: string; weather: string }
-): Promise<RoadSurfaceFeatures['drivableArea']> {
+  _conditions: { lighting: string; weather: string },
+): Promise<RoadSurfaceFeatures["drivableArea"]> {
   const mask = new Uint8Array(roadMask.length);
   let drivablePixels = 0;
 
@@ -137,7 +186,8 @@ async function computeDrivableArea(
 
       // Exclude bright spots (potential obstacles/vehicles)
       const brightness = (r + g + b) / 3;
-      const saturation = (Math.max(r, g, b) - Math.min(r, g, b)) / Math.max(r, g, b, 1);
+      const saturation =
+        (Math.max(r, g, b) - Math.min(r, g, b)) / Math.max(r, g, b, 1);
 
       const isObstacle = brightness > 180 || saturation > 0.4;
 
@@ -149,7 +199,11 @@ async function computeDrivableArea(
   }
 
   const coverage = drivablePixels / roadMask.length;
-  const visualizationUrl = await createDrivableAreaVisualization(mask, width, height);
+  const visualizationUrl = await createDrivableAreaVisualization(
+    mask,
+    width,
+    height,
+  );
 
   return { mask, coverage, visualizationUrl };
 }
@@ -160,8 +214,8 @@ async function computeDrivableArea(
 async function computeRoadEdges(
   roadMask: Uint8Array,
   width: number,
-  height: number
-): Promise<RoadSurfaceFeatures['roadEdges']> {
+  height: number,
+): Promise<RoadSurfaceFeatures["roadEdges"]> {
   const edgeMap = new Uint8Array(roadMask.length);
   let totalEdgeStrength = 0;
   let edgeCount = 0;
@@ -201,7 +255,11 @@ async function computeRoadEdges(
   }
 
   const edgeStrength = edgeCount > 0 ? totalEdgeStrength / edgeCount / 255 : 0;
-  const visualizationUrl = await createEdgeVisualization(edgeMap, width, height);
+  const visualizationUrl = await createEdgeVisualization(
+    edgeMap,
+    width,
+    height,
+  );
 
   return { edgeMap, edgeStrength, edgeCount, visualizationUrl };
 }
@@ -214,9 +272,14 @@ async function computeDamageDetection(
   roadMask: Uint8Array,
   width: number,
   height: number,
-  conditions: { lighting: string; weather: string }
-): Promise<RoadSurfaceFeatures['damage']> {
-  const damageLocations: Array<{ x: number; y: number; type: 'pothole' | 'crack'; severity: number }> = [];
+  _conditions: { lighting: string; weather: string },
+): Promise<RoadSurfaceFeatures["damage"]> {
+  const damageLocations: Array<{
+    x: number;
+    y: number;
+    type: "pothole" | "crack";
+    severity: number;
+  }> = [];
   let potholeScore = 0;
   let crackScore = 0;
   let potholeCount = 0;
@@ -239,7 +302,8 @@ async function computeDamageDetection(
 
           roadPixelsInBlock++;
           const pixelIdx = idx * 4;
-          const brightness = (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
+          const brightness =
+            (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
           avgBrightness += brightness;
 
           if (brightness < 60) darkPixels++;
@@ -257,8 +321,9 @@ async function computeDamageDetection(
           if (roadMask[idx] === 0) continue;
 
           const pixelIdx = idx * 4;
-          const brightness = (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
-          brightnessVariance += Math.pow(brightness - avgBrightness, 2);
+          const brightness =
+            (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
+          brightnessVariance += (brightness - avgBrightness) ** 2;
         }
       }
 
@@ -271,7 +336,7 @@ async function computeDamageDetection(
         damageLocations.push({
           x: bx + blockSize / 2,
           y: by + blockSize / 2,
-          type: 'pothole',
+          type: "pothole",
           severity,
         });
         potholeScore += severity;
@@ -279,12 +344,16 @@ async function computeDamageDetection(
       }
 
       // Crack detection: high variance with linear patterns
-      if (brightnessVariance > 400 && avgBrightness > 60 && avgBrightness < 150) {
+      if (
+        brightnessVariance > 400 &&
+        avgBrightness > 60 &&
+        avgBrightness < 150
+      ) {
         const severity = Math.min(1, brightnessVariance / 1000);
         damageLocations.push({
           x: bx + blockSize / 2,
           y: by + blockSize / 2,
-          type: 'crack',
+          type: "crack",
           severity,
         });
         crackScore += severity;
@@ -300,7 +369,7 @@ async function computeDamageDetection(
     data,
     damageLocations,
     width,
-    height
+    height,
   );
 
   return { potholeScore, crackScore, damageLocations, visualizationUrl };
@@ -314,8 +383,8 @@ async function computeWetSurfaceDetection(
   roadMask: Uint8Array,
   width: number,
   height: number,
-  conditions: { lighting: string; weather: string }
-): Promise<RoadSurfaceFeatures['wetSurface']> {
+  conditions: { lighting: string; weather: string },
+): Promise<RoadSurfaceFeatures["wetSurface"]> {
   let wetnessScore = 0;
   let slipperinessScore = 0;
 
@@ -360,14 +429,17 @@ async function computeWetSurfaceDetection(
     const darkWetRatio = darkWetPixels / roadPixels;
 
     // Wetness score based on reflectance and color
-    wetnessScore = Math.min(1, (reflectanceRatio * 2 + blueShiftRatio + darkWetRatio) / 3);
+    wetnessScore = Math.min(
+      1,
+      (reflectanceRatio * 2 + blueShiftRatio + darkWetRatio) / 3,
+    );
 
     // Slipperiness correlates with wetness and weather
     slipperinessScore = wetnessScore;
-    if (conditions.weather.includes('Rain')) {
+    if (conditions.weather.includes("Rain")) {
       slipperinessScore = Math.min(1, slipperinessScore * 1.3);
     }
-    if (conditions.weather.includes('Fog')) {
+    if (conditions.weather.includes("Fog")) {
       slipperinessScore = Math.min(1, slipperinessScore * 1.1);
     }
   }
@@ -377,7 +449,7 @@ async function computeWetSurfaceDetection(
     roadMask,
     width,
     height,
-    wetnessScore
+    wetnessScore,
   );
 
   return { wetnessScore, slipperinessScore, visualizationUrl };
@@ -389,13 +461,13 @@ async function computeWetSurfaceDetection(
 async function createSegmentationVisualization(
   mask: Uint8Array,
   width: number,
-  height: number
+  height: number,
 ): Promise<string | null> {
   try {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
     const imageData = ctx.createImageData(width, height);
@@ -414,9 +486,9 @@ async function createSegmentationVisualization(
     }
 
     ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL("image/png");
   } catch (error) {
-    console.error('[Visualization] Segmentation failed:', error);
+    console.error("[Visualization] Segmentation failed:", error);
     return null;
   }
 }
@@ -427,13 +499,13 @@ async function createSegmentationVisualization(
 async function createDrivableAreaVisualization(
   mask: Uint8Array,
   width: number,
-  height: number
+  height: number,
 ): Promise<string | null> {
   try {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
     const imageData = ctx.createImageData(width, height);
@@ -452,9 +524,9 @@ async function createDrivableAreaVisualization(
     }
 
     ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL("image/png");
   } catch (error) {
-    console.error('[Visualization] Drivable area failed:', error);
+    console.error("[Visualization] Drivable area failed:", error);
     return null;
   }
 }
@@ -465,13 +537,13 @@ async function createDrivableAreaVisualization(
 async function createEdgeVisualization(
   edgeMap: Uint8Array,
   width: number,
-  height: number
+  height: number,
 ): Promise<string | null> {
   try {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
     const imageData = ctx.createImageData(width, height);
@@ -491,9 +563,9 @@ async function createEdgeVisualization(
     }
 
     ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL("image/png");
   } catch (error) {
-    console.error('[Visualization] Edge detection failed:', error);
+    console.error("[Visualization] Edge detection failed:", error);
     return null;
   }
 }
@@ -502,29 +574,34 @@ async function createEdgeVisualization(
  * Create damage detection visualization
  */
 async function createDamageVisualization(
-  data: Uint8ClampedArray,
-  damageLocations: Array<{ x: number; y: number; type: 'pothole' | 'crack'; severity: number }>,
+  _data: Uint8ClampedArray,
+  damageLocations: Array<{
+    x: number;
+    y: number;
+    type: "pothole" | "crack";
+    severity: number;
+  }>,
   width: number,
-  height: number
+  height: number,
 ): Promise<string | null> {
   try {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
     // Draw semi-transparent background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
     ctx.fillRect(0, 0, width, height);
 
     // Draw damage markers
-    damageLocations.forEach((location) => {
+    for (const location of damageLocations) {
       const radius = 12 + location.severity * 8;
       ctx.beginPath();
       ctx.arc(location.x, location.y, radius, 0, Math.PI * 2);
 
-      if (location.type === 'pothole') {
+      if (location.type === "pothole") {
         ctx.fillStyle = `rgba(255, 50, 50, ${0.5 + location.severity * 0.3})`;
         ctx.strokeStyle = `rgba(255, 100, 100, ${0.8 + location.severity * 0.2})`;
       } else {
@@ -537,18 +614,18 @@ async function createDamageVisualization(
       ctx.stroke();
 
       // Label
-      ctx.fillStyle = 'white';
-      ctx.font = '10px sans-serif';
+      ctx.fillStyle = "white";
+      ctx.font = "10px sans-serif";
       ctx.fillText(
-        location.type === 'pothole' ? 'P' : 'C',
+        location.type === "pothole" ? "P" : "C",
         location.x - 3,
-        location.y + 4
+        location.y + 4,
       );
-    });
+    }
 
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL("image/png");
   } catch (error) {
-    console.error('[Visualization] Damage detection failed:', error);
+    console.error("[Visualization] Damage detection failed:", error);
     return null;
   }
 }
@@ -561,13 +638,13 @@ async function createWetSurfaceVisualization(
   roadMask: Uint8Array,
   width: number,
   height: number,
-  wetnessScore: number
+  wetnessScore: number,
 ): Promise<string | null> {
   try {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
     const imageData = ctx.createImageData(width, height);
@@ -583,7 +660,8 @@ async function createWetSurfaceVisualization(
         const brightness = (r + g + b) / 3;
 
         // Highlight wet areas with blue tint
-        const isWet = brightness > 200 || (b > r + 10 && b > g + 10) || brightness < 70;
+        const isWet =
+          brightness > 200 || (b > r + 10 && b > g + 10) || brightness < 70;
 
         if (isWet) {
           overlayData[idx] = 50;
@@ -599,9 +677,9 @@ async function createWetSurfaceVisualization(
     }
 
     ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL("image/png");
   } catch (error) {
-    console.error('[Visualization] Wet surface failed:', error);
+    console.error("[Visualization] Wet surface failed:", error);
     return null;
   }
 }

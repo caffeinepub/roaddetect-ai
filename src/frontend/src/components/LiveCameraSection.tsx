@@ -1,28 +1,68 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, CameraOff, Loader2, Play, Square, AlertCircle, CheckCircle2, Cpu, ShieldCheck, ShieldAlert, Activity, Zap, RefreshCw } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
-import { useCamera } from '@/camera/useCamera';
-import { processRoadDetection } from '@/lib/roadDetection';
-import { detectSpeedLimit } from '@/lib/speedLimitDetection';
-import { trackObstacles, initializeTrackingState, type TrackingState } from '@/lib/obstacleTracking';
-import MetricsPanel from './MetricsPanel';
-import DriverAlertPanel from './DriverAlertPanel';
-import SpeedLimitDisplay from './SpeedLimitDisplay';
-import { useStoreObstacleEvent, useStorePotholeEvent } from '@/hooks/useQueries';
-import { ExternalBlob, MotionType, ObjectType, PotholeType } from '@/backend';
-import type { DetectionMetrics, EnvironmentalConditions, RoadSurfaceFeatures, ObstacleInfo, EmergencyCondition, PotholeDetection } from '@/types/detection';
+import { ExternalBlob, MotionType, ObjectType, PotholeType } from "@/backend";
+import { useCamera } from "@/camera/useCamera";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  useStoreObstacleEvent,
+  useStorePotholeEvent,
+} from "@/hooks/useQueries";
+import {
+  type TrackingState,
+  initializeTrackingState,
+  trackObstacles,
+} from "@/lib/obstacleTracking";
+import { processRoadDetection } from "@/lib/roadDetection";
+import { detectSpeedLimit } from "@/lib/speedLimitDetection";
+import type {
+  DetectionMetrics,
+  EmergencyCondition,
+  EnvironmentalConditions,
+  ObstacleInfo,
+  PotholeDetection,
+  RoadSurfaceFeatures,
+} from "@/types/detection";
+import {
+  Activity,
+  AlertCircle,
+  Camera,
+  CameraOff,
+  CheckCircle2,
+  Cpu,
+  Loader2,
+  Play,
+  RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+  Square,
+  Zap,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import DriverAlertPanel from "./DriverAlertPanel";
+import MetricsPanel from "./MetricsPanel";
+import SpeedLimitDisplay from "./SpeedLimitDisplay";
 
 interface LiveCameraSectionProps {
   isActive?: boolean;
   autoStart?: boolean;
 }
 
-type CameraStatus = 'idle' | 'initializing' | 'requesting-permission' | 'active' | 'error' | 'denied';
-type SystemStatus = 'idle' | 'initializing' | 'ready' | 'active' | 'error';
+type CameraStatus =
+  | "idle"
+  | "initializing"
+  | "requesting-permission"
+  | "active"
+  | "error"
+  | "denied";
+type SystemStatus = "idle" | "initializing" | "ready" | "active" | "error";
 
 interface LiveMetrics {
   confidenceScore: number;
@@ -42,44 +82,53 @@ interface LiveMetrics {
   closestPotholeDistance?: number;
 }
 
-export default function LiveCameraSection({ isActive: isTabActive = false, autoStart = false }: LiveCameraSectionProps) {
+export default function LiveCameraSection({
+  isActive: isTabActive = false,
+  autoStart = false,
+}: LiveCameraSectionProps) {
   const {
     isActive,
     isSupported,
     error,
     isLoading,
-    currentFacingMode,
+    currentFacingMode: _currentFacingMode,
     startCamera,
     stopCamera,
     retry,
     videoRef,
     canvasRef,
-  } = useCamera({ facingMode: 'environment' });
+  } = useCamera({ facingMode: "environment" });
 
   const [isDetecting, setIsDetecting] = useState(false);
   const [metrics, setMetrics] = useState<LiveMetrics | null>(null);
-  const [roadSurfaceFeatures, setRoadSurfaceFeatures] = useState<RoadSurfaceFeatures | undefined>(undefined);
+  const [roadSurfaceFeatures, setRoadSurfaceFeatures] = useState<
+    RoadSurfaceFeatures | undefined
+  >(undefined);
   const [obstacles, setObstacles] = useState<ObstacleInfo[]>([]);
   const [potholes, setPotholes] = useState<PotholeDetection[]>([]);
-  const [emergencyConditions, setEmergencyConditions] = useState<EmergencyCondition[]>([]);
-  const [detectedSpeedLimit, setDetectedSpeedLimit] = useState<number | null>(null);
+  const [emergencyConditions, setEmergencyConditions] = useState<
+    EmergencyCondition[]
+  >([]);
+  const [detectedSpeedLimit, setDetectedSpeedLimit] = useState<number | null>(
+    null,
+  );
   const [speedLimitConfidence, setSpeedLimitConfidence] = useState<number>(0);
   const [currentSpeed, setCurrentSpeed] = useState<number>(0);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [cameraStatus, setCameraStatus] = useState<CameraStatus>('idle');
-  const [systemStatus, setSystemStatus] = useState<SystemStatus>('idle');
+  const [soundEnabled, _setSoundEnabled] = useState(true);
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>("idle");
+  const [systemStatus, setSystemStatus] = useState<SystemStatus>("idle");
   const [autoStartAttempted, setAutoStartAttempted] = useState(false);
   const [realTimeFPS, setRealTimeFPS] = useState<number>(0);
-  const [detectionCount, setDetectionCount] = useState({ 
-    obstacles: 0, 
-    speedLimits: 0, 
+  const [detectionCount, setDetectionCount] = useState({
+    obstacles: 0,
+    speedLimits: 0,
     emergencies: 0,
     vehicles: 0,
     pedestrians: 0,
     debris: 0,
     potholes: 0,
   });
-  const [errorDetails, setErrorDetails] = useState<string>('');
+  const [errorDetails, setErrorDetails] = useState<string>("");
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastProcessTimeRef = useRef<number>(0);
@@ -89,55 +138,55 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
   const trackingStateRef = useRef<TrackingState>(initializeTrackingState());
   const storeObstacleEvent = useStoreObstacleEvent();
   const storePotholeEvent = useStorePotholeEvent();
-  const lastDetectionIdRef = useRef<string>('');
+  const lastDetectionIdRef = useRef<string>("");
   const lastSpeedLimitDetectionRef = useRef<number>(0);
 
   // Update camera status based on hook state
   useEffect(() => {
     if (isLoading) {
-      setCameraStatus('requesting-permission');
-      console.log('[Camera] Requesting permission...');
+      setCameraStatus("requesting-permission");
+      console.log("[Camera] Requesting permission...");
     } else if (isActive) {
-      setCameraStatus('active');
-      setSystemStatus('ready');
-      setErrorDetails('');
-      console.log('[Camera] Camera active and ready');
-      
+      setCameraStatus("active");
+      setSystemStatus("ready");
+      setErrorDetails("");
+      console.log("[Camera] Camera active and ready");
+
       // Show success toast when camera becomes active
       if (autoStart) {
-        toast.success('Camera Connected', {
-          description: 'Live monitoring system is ready',
+        toast.success("Camera Connected", {
+          description: "Live monitoring system is ready",
         });
       }
     } else if (error) {
-      setCameraStatus(error.type === 'permission' ? 'denied' : 'error');
-      setSystemStatus('error');
+      setCameraStatus(error.type === "permission" ? "denied" : "error");
+      setSystemStatus("error");
       const errorMsg = `Camera ${error.type} error: ${error.message}`;
       setErrorDetails(errorMsg);
-      console.error('[Camera]', errorMsg, error);
-      
+      console.error("[Camera]", errorMsg, error);
+
       // Show error toast with appropriate message
-      if (error.type === 'permission') {
-        toast.error('Camera Access Denied', {
-          description: 'Please allow camera access in your browser settings',
+      if (error.type === "permission") {
+        toast.error("Camera Access Denied", {
+          description: "Please allow camera access in your browser settings",
         });
-      } else if (error.type === 'not-found') {
-        toast.error('Camera Not Found', {
-          description: 'No camera device detected on your system',
+      } else if (error.type === "not-found") {
+        toast.error("Camera Not Found", {
+          description: "No camera device detected on your system",
         });
-      } else if (error.type === 'not-supported') {
-        toast.error('Camera Not Supported', {
-          description: 'Your browser does not support camera access',
+      } else if (error.type === "not-supported") {
+        toast.error("Camera Not Supported", {
+          description: "Your browser does not support camera access",
         });
       } else {
-        toast.error('Camera Error', {
-          description: error.message || 'Failed to initialize camera',
+        toast.error("Camera Error", {
+          description: error.message || "Failed to initialize camera",
         });
       }
     } else if (!isActive && !isLoading && !error) {
-      setCameraStatus('idle');
-      if (systemStatus !== 'idle') {
-        setSystemStatus('idle');
+      setCameraStatus("idle");
+      if (systemStatus !== "idle") {
+        setSystemStatus("idle");
       }
     }
   }, [isActive, isLoading, error, systemStatus, autoStart]);
@@ -146,81 +195,95 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
   useEffect(() => {
     if (
       autoStart &&
-      isTabActive && 
-      !isActive && 
-      !autoStartAttempted && 
-      !isLoading && 
+      isTabActive &&
+      !isActive &&
+      !autoStartAttempted &&
+      !isLoading &&
       isSupported !== false &&
-      cameraStatus === 'idle'
+      cameraStatus === "idle"
     ) {
-      console.log('[Camera] Auto-starting camera for live operational mode...');
+      console.log("[Camera] Auto-starting camera for live operational mode...");
       setAutoStartAttempted(true);
-      setSystemStatus('initializing');
-      setCameraStatus('initializing');
-      
+      setSystemStatus("initializing");
+      setCameraStatus("initializing");
+
       const initCamera = async () => {
         try {
-          console.log('[Camera] Calling startCamera()...');
-          
+          console.log("[Camera] Calling startCamera()...");
+
           // Add timeout for camera initialization
           const timeoutPromise = new Promise<boolean>((_, reject) => {
-            setTimeout(() => reject(new Error('Camera initialization timeout')), 10000);
+            setTimeout(
+              () => reject(new Error("Camera initialization timeout")),
+              10000,
+            );
           });
-          
+
           const startPromise = startCamera();
           const success = await Promise.race([startPromise, timeoutPromise]);
-          
+
           if (success) {
-            console.log('[Camera] Camera started successfully');
-            setCameraStatus('active');
-            setSystemStatus('ready');
-            setErrorDetails('');
+            console.log("[Camera] Camera started successfully");
+            setCameraStatus("active");
+            setSystemStatus("ready");
+            setErrorDetails("");
           } else {
-            console.error('[Camera] startCamera() returned false');
-            setCameraStatus('error');
-            setSystemStatus('error');
-            const errorMsg = 'Failed to initialize camera. Please check permissions and try again.';
+            console.error("[Camera] startCamera() returned false");
+            setCameraStatus("error");
+            setSystemStatus("error");
+            const errorMsg =
+              "Failed to initialize camera. Please check permissions and try again.";
             setErrorDetails(errorMsg);
-            toast.error('Camera Initialization Failed', {
+            toast.error("Camera Initialization Failed", {
               description: errorMsg,
             });
           }
         } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-          console.error('[Camera] Camera initialization exception:', err);
-          setCameraStatus('error');
-          setSystemStatus('error');
+          const errorMessage =
+            err instanceof Error ? err.message : "Unknown error occurred";
+          console.error("[Camera] Camera initialization exception:", err);
+          setCameraStatus("error");
+          setSystemStatus("error");
           setErrorDetails(`Camera initialization failed: ${errorMessage}`);
-          
-          toast.error('Camera System Error', {
+
+          toast.error("Camera System Error", {
             description: errorMessage,
           });
         }
       };
-      
+
       // Add a small delay to ensure DOM is ready
       const timer = setTimeout(() => {
         initCamera();
       }, 100);
-      
+
       return () => clearTimeout(timer);
     }
-  }, [autoStart, isTabActive, isActive, autoStartAttempted, isLoading, isSupported, cameraStatus, startCamera]);
+  }, [
+    autoStart,
+    isTabActive,
+    isActive,
+    autoStartAttempted,
+    isLoading,
+    isSupported,
+    cameraStatus,
+    startCamera,
+  ]);
 
   // Auto-start detection once camera is active in live operational mode
   useEffect(() => {
-    if (autoStart && isActive && !isDetecting && systemStatus === 'ready') {
-      console.log('[Camera] Auto-starting detection...');
+    if (autoStart && isActive && !isDetecting && systemStatus === "ready") {
+      console.log("[Camera] Auto-starting detection...");
       const timer = setTimeout(() => {
         setIsDetecting(true);
-        setSystemStatus('active');
+        setSystemStatus("active");
         frameCountRef.current = 0;
         performanceMetricsRef.current = { avgFrameTime: 0, frameCount: 0 };
         fpsCounterRef.current = { frames: 0, lastTime: performance.now() };
         trackingStateRef.current = initializeTrackingState();
-        
-        toast.info('Live Monitoring Active', {
-          description: 'Real-time road detection is now running',
+
+        toast.info("Live Monitoring Active", {
+          description: "Real-time road detection is now running",
         });
       }, 500);
       return () => clearTimeout(timer);
@@ -231,7 +294,7 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
   useEffect(() => {
     if (!isTabActive) {
       setAutoStartAttempted(false);
-      console.log('[Camera] Tab inactive, reset auto-start flag');
+      console.log("[Camera] Tab inactive, reset auto-start flag");
     }
   }, [isTabActive]);
 
@@ -242,14 +305,14 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
     const updateFPS = () => {
       const now = performance.now();
       const elapsed = now - fpsCounterRef.current.lastTime;
-      
+
       if (elapsed >= 1000) {
         const fps = (fpsCounterRef.current.frames * 1000) / elapsed;
         setRealTimeFPS(fps);
         fpsCounterRef.current.frames = 0;
         fpsCounterRef.current.lastTime = now;
       }
-      
+
       if (isDetecting) {
         requestAnimationFrame(updateFPS);
       }
@@ -264,8 +327,8 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
 
     const video = videoRef.current;
     const canvas = overlayCanvasRef.current;
-    
-    const ctx = canvas.getContext('2d', { 
+
+    const ctx = canvas.getContext("2d", {
       alpha: false,
       desynchronized: true,
       willReadFrequently: false,
@@ -279,8 +342,20 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
     const currentTime = performance.now();
     const timeSinceLastProcess = currentTime - lastProcessTimeRef.current;
 
-    const targetFrameTime = performanceMetricsRef.current.avgFrameTime > 200 ? 500 : 200;
-    
+    // Draw live video to overlay canvas every frame for smooth display (~30fps)
+    if (
+      canvas.width !== video.videoWidth ||
+      canvas.height !== video.videoHeight
+    ) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Throttle ML processing separately: run every ~333ms (3fps) to keep UI smooth
+    const targetFrameTime =
+      performanceMetricsRef.current.avgFrameTime > 300 ? 500 : 333;
+
     if (timeSinceLastProcess < targetFrameTime) {
       animationFrameRef.current = requestAnimationFrame(processFrame);
       return;
@@ -290,73 +365,76 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
     frameCountRef.current++;
     fpsCounterRef.current.frames++;
 
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    
+
     let tempCanvas: HTMLCanvasElement | OffscreenCanvas;
     let tempCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-    
-    if (typeof OffscreenCanvas !== 'undefined') {
+
+    if (typeof OffscreenCanvas !== "undefined") {
       tempCanvas = new OffscreenCanvas(canvas.width, canvas.height);
-      tempCtx = tempCanvas.getContext('2d', {
+      tempCtx = tempCanvas.getContext("2d", {
         alpha: false,
         desynchronized: true,
       })!;
     } else {
-      tempCanvas = document.createElement('canvas');
+      tempCanvas = document.createElement("canvas");
       tempCanvas.width = canvas.width;
       tempCanvas.height = canvas.height;
-      tempCtx = tempCanvas.getContext('2d', {
+      tempCtx = tempCanvas.getContext("2d", {
         alpha: false,
         desynchronized: true,
       })!;
     }
-    
+
     if (tempCtx) {
       tempCtx.putImageData(imageData, 0, 0);
-      
+
       let dataUrl: string;
       if (tempCanvas instanceof OffscreenCanvas) {
-        const blob = await tempCanvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 });
+        const blob = await tempCanvas.convertToBlob({
+          type: "image/jpeg",
+          quality: 0.7,
+        });
         dataUrl = URL.createObjectURL(blob);
       } else {
-        dataUrl = tempCanvas.toDataURL('image/jpeg', 0.7);
+        dataUrl = tempCanvas.toDataURL("image/jpeg", 0.7);
       }
 
       try {
         const processingStart = performance.now();
-        
-        const result = await processRoadDetection(dataUrl, 'video', {
-          avgFrameTime: performanceMetricsRef.current.avgFrameTime,
-          frameCount: frameCountRef.current
-        }, true);
-        
+
+        const result = await processRoadDetection(
+          dataUrl,
+          "video",
+          {
+            avgFrameTime: performanceMetricsRef.current.avgFrameTime,
+            frameCount: frameCountRef.current,
+          },
+          true,
+        );
+
         const processingTime = performance.now() - processingStart;
-        
+
         performanceMetricsRef.current.frameCount++;
-        performanceMetricsRef.current.avgFrameTime = 
-          performanceMetricsRef.current.avgFrameTime * 0.9 + processingTime * 0.1;
-        
+        performanceMetricsRef.current.avgFrameTime =
+          performanceMetricsRef.current.avgFrameTime * 0.9 +
+          processingTime * 0.1;
+
         // Extract potholes from road surface features
-        const detectedPotholes = result.roadSurfaceFeatures?.potholes?.detections || [];
+        const detectedPotholes =
+          result.roadSurfaceFeatures?.potholes?.detections || [];
         setPotholes(detectedPotholes);
 
         if (result.obstacleDetection) {
           // Track obstacles across frames for motion classification
           const { trackedObstacles, newState } = trackObstacles(
             result.obstacleDetection.obstacles,
-            trackingStateRef.current
+            trackingStateRef.current,
           );
           trackingStateRef.current = newState;
 
           const img = new Image();
-          img.decoding = 'async';
+          img.decoding = "async";
           img.onload = () => {
             ctx.globalAlpha = 1.0;
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -366,30 +444,36 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
           setObstacles(trackedObstacles);
           setEmergencyConditions(result.obstacleDetection.emergencyConditions);
 
-          if (trackedObstacles.length > 0 && result.id !== lastDetectionIdRef.current) {
+          if (
+            trackedObstacles.length > 0 &&
+            result.id !== lastDetectionIdRef.current
+          ) {
             lastDetectionIdRef.current = result.id;
-            
+
             let obstacleCount = 0;
-            let emergencyCount = result.obstacleDetection.emergencyConditions.length;
+            let emergencyCount =
+              result.obstacleDetection.emergencyConditions.length;
             let vehicleCount = 0;
             let pedestrianCount = 0;
             let debrisCount = 0;
 
-            trackedObstacles.forEach(async (obstacle) => {
-              const obstacleBuffer = new ArrayBuffer(result.obstacleDetection!.visualizationData.length);
+            for (const obstacle of trackedObstacles) {
+              const obstacleBuffer = new ArrayBuffer(
+                result.obstacleDetection!.visualizationData.length,
+              );
               const obstacleView = new Uint8Array(obstacleBuffer);
               obstacleView.set(result.obstacleDetection!.visualizationData);
               const obstacleBlob = ExternalBlob.fromBytes(obstacleView);
 
               // Map obstacle type to backend enum
               let objectType: ObjectType;
-              if (obstacle.type === 'Vehicle') {
+              if (obstacle.type === "Vehicle") {
                 objectType = ObjectType.vehicle;
                 vehicleCount++;
-              } else if (obstacle.type === 'Pedestrian') {
+              } else if (obstacle.type === "Pedestrian") {
                 objectType = ObjectType.pedestrian;
                 pedestrianCount++;
-              } else if (obstacle.type === 'Debris/Obstacle') {
+              } else if (obstacle.type === "Debris/Obstacle") {
                 objectType = ObjectType.debris;
                 debrisCount++;
               } else {
@@ -397,7 +481,10 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
               }
 
               // Map motion to backend enum
-              const motion = obstacle.motion === 'Moving' ? MotionType.moving : MotionType.static_;
+              const motion =
+                obstacle.motion === "Moving"
+                  ? MotionType.moving
+                  : MotionType.static_;
 
               await storeObstacleEvent.mutateAsync({
                 id: obstacle.id,
@@ -414,9 +501,9 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
                 },
               });
               obstacleCount++;
-            });
+            }
 
-            setDetectionCount(prev => ({
+            setDetectionCount((prev) => ({
               obstacles: prev.obstacles + obstacleCount,
               speedLimits: prev.speedLimits,
               emergencies: prev.emergencies + emergencyCount,
@@ -429,11 +516,16 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
         }
 
         // Store pothole events
-        if (detectedPotholes.length > 0 && result.id !== lastDetectionIdRef.current) {
+        if (
+          detectedPotholes.length > 0 &&
+          result.id !== lastDetectionIdRef.current
+        ) {
           let potholeCount = 0;
 
-          detectedPotholes.forEach(async (pothole) => {
-            const potholeBuffer = new ArrayBuffer(result.processedImageData.length);
+          for (const pothole of detectedPotholes) {
+            const potholeBuffer = new ArrayBuffer(
+              result.processedImageData.length,
+            );
             const potholeView = new Uint8Array(potholeBuffer);
             potholeView.set(result.processedImageData);
             const potholeBlob = ExternalBlob.fromBytes(potholeView);
@@ -441,22 +533,22 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
             // Map pothole type to backend enum
             let backendPotholeType: PotholeType;
             switch (pothole.potholeType) {
-              case 'surface_cracks':
+              case "surface_cracks":
                 backendPotholeType = PotholeType.surface_cracks;
                 break;
-              case 'rough_size':
+              case "rough_size":
                 backendPotholeType = PotholeType.rough_size;
                 break;
-              case 'deep':
+              case "deep":
                 backendPotholeType = PotholeType.deep;
                 break;
-              case 'edge':
+              case "edge":
                 backendPotholeType = PotholeType.edge;
                 break;
-              case 'pavement':
+              case "pavement":
                 backendPotholeType = PotholeType.pavement;
                 break;
-              case 'complex':
+              case "complex":
                 backendPotholeType = PotholeType.complex;
                 break;
               default:
@@ -489,36 +581,44 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
               },
             });
             potholeCount++;
-          });
+          }
 
-          setDetectionCount(prev => ({
+          setDetectionCount((prev) => ({
             ...prev,
             potholes: prev.potholes + potholeCount,
           }));
         }
 
-        const timeSinceLastSpeedDetection = currentTime - lastSpeedLimitDetectionRef.current;
+        const timeSinceLastSpeedDetection =
+          currentTime - lastSpeedLimitDetectionRef.current;
         if (timeSinceLastSpeedDetection > 3000) {
           lastSpeedLimitDetectionRef.current = currentTime;
-          
+
           try {
-            const speedLimitResult = await detectSpeedLimit(dataUrl, canvas.width, canvas.height);
-            
-            if (speedLimitResult.detectedSpeedLimit !== null && speedLimitResult.confidenceLevel > 0.6) {
+            const speedLimitResult = await detectSpeedLimit(
+              dataUrl,
+              canvas.width,
+              canvas.height,
+            );
+
+            if (
+              speedLimitResult.detectedSpeedLimit !== null &&
+              speedLimitResult.confidenceLevel > 0.6
+            ) {
               setDetectedSpeedLimit(speedLimitResult.detectedSpeedLimit);
               setSpeedLimitConfidence(speedLimitResult.confidenceLevel);
-              
-              setDetectionCount(prev => ({
+
+              setDetectionCount((prev) => ({
                 ...prev,
                 speedLimits: prev.speedLimits + 1,
               }));
             }
           } catch (error) {
-            console.error('[Detection] Speed limit detection error:', error);
+            console.error("[Detection] Speed limit detection error:", error);
           }
         }
 
-        if (dataUrl.startsWith('blob:')) {
+        if (dataUrl.startsWith("blob:")) {
           URL.revokeObjectURL(dataUrl);
         }
 
@@ -542,42 +642,48 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
 
         setRoadSurfaceFeatures(result.roadSurfaceFeatures);
       } catch (error) {
-        console.error('[Detection] Frame processing error:', error);
+        console.error("[Detection] Frame processing error:", error);
       }
     }
 
     animationFrameRef.current = requestAnimationFrame(processFrame);
-  }, [isDetecting, videoRef, storeObstacleEvent, storePotholeEvent, realTimeFPS]);
+  }, [
+    isDetecting,
+    videoRef,
+    storeObstacleEvent,
+    storePotholeEvent,
+    realTimeFPS,
+  ]);
 
   const handleStartCamera = async () => {
-    console.log('[Camera] Manual start camera button clicked');
-    setCameraStatus('initializing');
-    setSystemStatus('initializing');
-    
+    console.log("[Camera] Manual start camera button clicked");
+    setCameraStatus("initializing");
+    setSystemStatus("initializing");
+
     try {
       const success = await startCamera();
       if (success) {
-        console.log('[Camera] Camera started successfully');
-        toast.success('Camera Started', {
-          description: 'Camera is now active',
+        console.log("[Camera] Camera started successfully");
+        toast.success("Camera Started", {
+          description: "Camera is now active",
         });
       } else {
-        console.error('[Camera] Failed to start camera');
-        toast.error('Camera Start Failed', {
-          description: 'Could not start camera. Please check permissions.',
+        console.error("[Camera] Failed to start camera");
+        toast.error("Camera Start Failed", {
+          description: "Could not start camera. Please check permissions.",
         });
       }
     } catch (err) {
-      console.error('[Camera] Error starting camera:', err);
-      toast.error('Camera Error', {
-        description: err instanceof Error ? err.message : 'Unknown error',
+      console.error("[Camera] Error starting camera:", err);
+      toast.error("Camera Error", {
+        description: err instanceof Error ? err.message : "Unknown error",
       });
     }
   };
 
   const handleStopCamera = async () => {
-    console.log('[Camera] Stop camera button clicked');
-    
+    console.log("[Camera] Stop camera button clicked");
+
     if (isDetecting) {
       setIsDetecting(false);
       if (animationFrameRef.current) {
@@ -585,68 +691,68 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
         animationFrameRef.current = undefined;
       }
     }
-    
+
     await stopCamera();
-    setCameraStatus('idle');
-    setSystemStatus('idle');
-    
-    toast.info('Camera Stopped', {
-      description: 'Camera has been deactivated',
+    setCameraStatus("idle");
+    setSystemStatus("idle");
+
+    toast.info("Camera Stopped", {
+      description: "Camera has been deactivated",
     });
   };
 
   const handleStartDetection = () => {
-    console.log('[Camera] Start detection button clicked');
+    console.log("[Camera] Start detection button clicked");
     setIsDetecting(true);
-    setSystemStatus('active');
+    setSystemStatus("active");
     frameCountRef.current = 0;
     performanceMetricsRef.current = { avgFrameTime: 0, frameCount: 0 };
     fpsCounterRef.current = { frames: 0, lastTime: performance.now() };
     trackingStateRef.current = initializeTrackingState();
-    
-    toast.success('Detection Started', {
-      description: 'Real-time road detection is now active',
+
+    toast.success("Detection Started", {
+      description: "Real-time road detection is now active",
     });
   };
 
   const handleStopDetection = () => {
-    console.log('[Camera] Stop detection button clicked');
+    console.log("[Camera] Stop detection button clicked");
     setIsDetecting(false);
-    setSystemStatus('ready');
-    
+    setSystemStatus("ready");
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = undefined;
     }
-    
-    toast.info('Detection Stopped', {
-      description: 'Real-time detection has been paused',
+
+    toast.info("Detection Stopped", {
+      description: "Real-time detection has been paused",
     });
   };
 
   const handleRetry = async () => {
-    console.log('[Camera] Retry button clicked');
-    setCameraStatus('initializing');
-    setSystemStatus('initializing');
-    setErrorDetails('');
-    
+    console.log("[Camera] Retry button clicked");
+    setCameraStatus("initializing");
+    setSystemStatus("initializing");
+    setErrorDetails("");
+
     try {
       const success = await retry();
       if (success) {
-        console.log('[Camera] Retry successful');
-        toast.success('Camera Reconnected', {
-          description: 'Camera is now active',
+        console.log("[Camera] Retry successful");
+        toast.success("Camera Reconnected", {
+          description: "Camera is now active",
         });
       } else {
-        console.error('[Camera] Retry failed');
-        toast.error('Retry Failed', {
-          description: 'Could not reconnect to camera',
+        console.error("[Camera] Retry failed");
+        toast.error("Retry Failed", {
+          description: "Could not reconnect to camera",
         });
       }
     } catch (err) {
-      console.error('[Camera] Retry error:', err);
-      toast.error('Retry Error', {
-        description: err instanceof Error ? err.message : 'Unknown error',
+      console.error("[Camera] Retry error:", err);
+      toast.error("Retry Error", {
+        description: err instanceof Error ? err.message : "Unknown error",
       });
     }
   };
@@ -665,14 +771,21 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
 
   const getStatusBadge = () => {
     switch (cameraStatus) {
-      case 'active':
-        return <Badge variant="default" className="bg-success text-success-foreground">Active</Badge>;
-      case 'initializing':
-      case 'requesting-permission':
+      case "active":
+        return (
+          <Badge
+            variant="default"
+            className="bg-success text-success-foreground"
+          >
+            Active
+          </Badge>
+        );
+      case "initializing":
+      case "requesting-permission":
         return <Badge variant="secondary">Initializing...</Badge>;
-      case 'denied':
+      case "denied":
         return <Badge variant="destructive">Access Denied</Badge>;
-      case 'error':
+      case "error":
         return <Badge variant="destructive">Error</Badge>;
       default:
         return <Badge variant="outline">Idle</Badge>;
@@ -681,13 +794,20 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
 
   const getSystemStatusBadge = () => {
     switch (systemStatus) {
-      case 'active':
-        return <Badge variant="default" className="bg-success text-success-foreground">Detecting</Badge>;
-      case 'ready':
+      case "active":
+        return (
+          <Badge
+            variant="default"
+            className="bg-success text-success-foreground"
+          >
+            Detecting
+          </Badge>
+        );
+      case "ready":
         return <Badge variant="secondary">Ready</Badge>;
-      case 'initializing':
+      case "initializing":
         return <Badge variant="secondary">Initializing...</Badge>;
-      case 'error':
+      case "error":
         return <Badge variant="destructive">Error</Badge>;
       default:
         return <Badge variant="outline">Idle</Badge>;
@@ -703,7 +823,8 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
             Camera Not Supported
           </CardTitle>
           <CardDescription>
-            Your browser does not support camera access. Please use a modern browser.
+            Your browser does not support camera access. Please use a modern
+            browser.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -725,48 +846,51 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
             </div>
           </div>
           <CardDescription>
-            Real-time road detection with obstacle tracking and environmental analysis
+            Real-time road detection with obstacle tracking and environmental
+            analysis
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Camera Controls */}
           <div className="flex flex-wrap gap-2">
-            {!isActive && cameraStatus !== 'error' && cameraStatus !== 'denied' && (
-              <Button
-                onClick={handleStartCamera}
-                disabled={isLoading || cameraStatus === 'initializing'}
-                className="gap-2"
-              >
-                {isLoading || cameraStatus === 'initializing' ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <Camera className="h-4 w-4" />
-                    Start Camera
-                  </>
-                )}
-              </Button>
-            )}
+            {!isActive &&
+              cameraStatus !== "error" &&
+              cameraStatus !== "denied" && (
+                <Button
+                  onClick={handleStartCamera}
+                  disabled={isLoading || cameraStatus === "initializing"}
+                  className="gap-2 border border-primary/50"
+                >
+                  {isLoading || cameraStatus === "initializing" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Starting...
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="h-4 w-4" />
+                      Start Camera
+                    </>
+                  )}
+                </Button>
+              )}
 
             {isActive && (
               <Button
                 onClick={handleStopCamera}
                 variant="destructive"
-                className="gap-2"
+                className="gap-2 border border-destructive/60"
               >
                 <CameraOff className="h-4 w-4" />
                 Stop Camera
               </Button>
             )}
 
-            {(cameraStatus === 'error' || cameraStatus === 'denied') && (
+            {(cameraStatus === "error" || cameraStatus === "denied") && (
               <Button
                 onClick={handleRetry}
                 variant="outline"
-                className="gap-2"
+                className="gap-2 border border-primary/50"
               >
                 <RefreshCw className="h-4 w-4" />
                 Retry
@@ -777,7 +901,7 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
               <Button
                 onClick={handleStartDetection}
                 variant="default"
-                className="gap-2"
+                className="gap-2 border border-primary/50"
               >
                 <Play className="h-4 w-4" />
                 Start Detection
@@ -788,7 +912,7 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
               <Button
                 onClick={handleStopDetection}
                 variant="outline"
-                className="gap-2"
+                className="gap-2 border border-primary/50"
               >
                 <Square className="h-4 w-4" />
                 Stop Detection
@@ -812,18 +936,15 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
               playsInline
               muted
               className="absolute inset-0 w-full h-full object-cover"
-              style={{ display: isActive ? 'block' : 'none' }}
+              style={{ display: isActive ? "block" : "none" }}
             />
             <canvas
               ref={overlayCanvasRef}
               className="absolute inset-0 w-full h-full object-cover"
-              style={{ display: isDetecting ? 'block' : 'none' }}
+              style={{ display: isDetecting ? "block" : "none" }}
             />
-            <canvas
-              ref={canvasRef}
-              className="hidden"
-            />
-            
+            <canvas ref={canvasRef} className="hidden" />
+
             {!isActive && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center text-muted-foreground">
@@ -850,9 +971,7 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
                   <Activity className="h-3 w-3 mr-1" />
                   LIVE
                 </Badge>
-                <Badge variant="secondary">
-                  {realTimeFPS.toFixed(1)} FPS
-                </Badge>
+                <Badge variant="secondary">{realTimeFPS.toFixed(1)} FPS</Badge>
               </div>
             )}
           </div>
@@ -862,19 +981,29 @@ export default function LiveCameraSection({ isActive: isTabActive = false, autoS
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="p-3 rounded-lg bg-muted">
                 <div className="text-xs text-muted-foreground">Obstacles</div>
-                <div className="text-2xl font-bold">{detectionCount.obstacles}</div>
+                <div className="text-2xl font-bold">
+                  {detectionCount.obstacles}
+                </div>
               </div>
               <div className="p-3 rounded-lg bg-muted">
                 <div className="text-xs text-muted-foreground">Potholes</div>
-                <div className="text-2xl font-bold text-warning">{detectionCount.potholes}</div>
+                <div className="text-2xl font-bold text-warning">
+                  {detectionCount.potholes}
+                </div>
               </div>
               <div className="p-3 rounded-lg bg-muted">
-                <div className="text-xs text-muted-foreground">Speed Limits</div>
-                <div className="text-2xl font-bold">{detectionCount.speedLimits}</div>
+                <div className="text-xs text-muted-foreground">
+                  Speed Limits
+                </div>
+                <div className="text-2xl font-bold">
+                  {detectionCount.speedLimits}
+                </div>
               </div>
               <div className="p-3 rounded-lg bg-muted">
                 <div className="text-xs text-muted-foreground">Emergencies</div>
-                <div className="text-2xl font-bold text-destructive">{detectionCount.emergencies}</div>
+                <div className="text-2xl font-bold text-destructive">
+                  {detectionCount.emergencies}
+                </div>
               </div>
             </div>
           )}

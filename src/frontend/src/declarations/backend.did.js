@@ -19,6 +19,15 @@ export const _CaffeineStorageRefillResult = IDL.Record({
   'success' : IDL.Opt(IDL.Bool),
   'topped_up_amount' : IDL.Opt(IDL.Nat),
 });
+export const DetectionMethod = IDL.Variant({
+  'aiAnalyzed' : IDL.Null,
+  'manual' : IDL.Null,
+});
+export const Location = IDL.Record({
+  'latitude' : IDL.Float64,
+  'longitude' : IDL.Float64,
+  'accuracy' : IDL.Float64,
+});
 export const Time = IDL.Int;
 export const ExternalBlob = IDL.Vec(IDL.Nat8);
 export const PotholeType = IDL.Variant({
@@ -47,6 +56,15 @@ export const UserRole = IDL.Variant({
   'admin' : IDL.Null,
   'user' : IDL.Null,
   'guest' : IDL.Null,
+});
+export const AccidentRecord = IDL.Record({
+  'id' : IDL.Text,
+  'description' : IDL.Text,
+  'timestamp' : Time,
+  'location' : Location,
+  'detectionMethod' : DetectionMethod,
+  'analysisResults' : IDL.Opt(IDL.Text),
+  'images' : IDL.Vec(ExternalBlob),
 });
 export const MotionType = IDL.Variant({
   'static' : IDL.Null,
@@ -104,6 +122,19 @@ export const idlService = IDL.Service({
     ),
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addAccidentRecord' : IDL.Func(
+      [
+        IDL.Text,
+        DetectionMethod,
+        Location,
+        Time,
+        IDL.Vec(ExternalBlob),
+        IDL.Text,
+        IDL.Opt(IDL.Text),
+      ],
+      [],
+      [],
+    ),
   'addPotholeSpecificEvent' : IDL.Func(
       [
         IDL.Text,
@@ -119,6 +150,8 @@ export const idlService = IDL.Service({
       [],
     ),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'getAccidentRecord' : IDL.Func([IDL.Text], [AccidentRecord], ['query']),
+  'getAllAccidentRecords' : IDL.Func([], [IDL.Vec(AccidentRecord)], ['query']),
   'getAllObstacleEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
   'getAllPotholeEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
@@ -163,6 +196,15 @@ export const idlFactory = ({ IDL }) => {
     'success' : IDL.Opt(IDL.Bool),
     'topped_up_amount' : IDL.Opt(IDL.Nat),
   });
+  const DetectionMethod = IDL.Variant({
+    'aiAnalyzed' : IDL.Null,
+    'manual' : IDL.Null,
+  });
+  const Location = IDL.Record({
+    'latitude' : IDL.Float64,
+    'longitude' : IDL.Float64,
+    'accuracy' : IDL.Float64,
+  });
   const Time = IDL.Int;
   const ExternalBlob = IDL.Vec(IDL.Nat8);
   const PotholeType = IDL.Variant({
@@ -191,6 +233,15 @@ export const idlFactory = ({ IDL }) => {
     'admin' : IDL.Null,
     'user' : IDL.Null,
     'guest' : IDL.Null,
+  });
+  const AccidentRecord = IDL.Record({
+    'id' : IDL.Text,
+    'description' : IDL.Text,
+    'timestamp' : Time,
+    'location' : Location,
+    'detectionMethod' : DetectionMethod,
+    'analysisResults' : IDL.Opt(IDL.Text),
+    'images' : IDL.Vec(ExternalBlob),
   });
   const MotionType = IDL.Variant({ 'static' : IDL.Null, 'moving' : IDL.Null });
   const ObjectType = IDL.Variant({
@@ -245,6 +296,19 @@ export const idlFactory = ({ IDL }) => {
       ),
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addAccidentRecord' : IDL.Func(
+        [
+          IDL.Text,
+          DetectionMethod,
+          Location,
+          Time,
+          IDL.Vec(ExternalBlob),
+          IDL.Text,
+          IDL.Opt(IDL.Text),
+        ],
+        [],
+        [],
+      ),
     'addPotholeSpecificEvent' : IDL.Func(
         [
           IDL.Text,
@@ -260,6 +324,12 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'getAccidentRecord' : IDL.Func([IDL.Text], [AccidentRecord], ['query']),
+    'getAllAccidentRecords' : IDL.Func(
+        [],
+        [IDL.Vec(AccidentRecord)],
+        ['query'],
+      ),
     'getAllObstacleEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
     'getAllPotholeEvents' : IDL.Func([], [IDL.Vec(ObstacleEvent)], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),

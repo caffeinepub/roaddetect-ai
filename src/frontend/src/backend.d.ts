@@ -32,6 +32,11 @@ export interface ObstacleEvent {
     potholeDetails?: PotholeDetails;
     classification: Classification;
 }
+export interface Location {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+}
 export type Time = bigint;
 export interface Classification {
     motion: MotionType;
@@ -50,8 +55,21 @@ export interface PotholeDetails {
         accuracy: number;
     };
 }
+export interface AccidentRecord {
+    id: string;
+    description: string;
+    timestamp: Time;
+    location: Location;
+    detectionMethod: DetectionMethod;
+    analysisResults?: string;
+    images: Array<ExternalBlob>;
+}
 export interface UserProfile {
     name: string;
+}
+export enum DetectionMethod {
+    aiAnalyzed = "aiAnalyzed",
+    manual = "manual"
 }
 export enum MotionType {
     static_ = "static",
@@ -78,6 +96,7 @@ export enum UserRole {
     guest = "guest"
 }
 export interface backendInterface {
+    addAccidentRecord(id: string, method: DetectionMethod, location: Location, timestamp: Time, images: Array<ExternalBlob>, description: string, analysisResults: string | null): Promise<void>;
     addPotholeSpecificEvent(id: string, position: {
         x: number;
         y: number;
@@ -86,6 +105,8 @@ export interface backendInterface {
         level: string;
     }, potholeDetails: PotholeDetails): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    getAccidentRecord(id: string): Promise<AccidentRecord>;
+    getAllAccidentRecords(): Promise<Array<AccidentRecord>>;
     getAllObstacleEvents(): Promise<Array<ObstacleEvent>>;
     getAllPotholeEvents(): Promise<Array<ObstacleEvent>>;
     getCallerUserProfile(): Promise<UserProfile | null>;

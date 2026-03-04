@@ -9,9 +9,9 @@ import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
-import Migration "migration";
 
-(with migration = Migration.run)
+
+
 actor {
   // Initialize the access control system
   let accessControlState = AccessControl.initState();
@@ -115,6 +115,31 @@ actor {
       };
     };
   };
+
+  // Accident Record Types and Storage
+
+  public type DetectionMethod = {
+    #manual;
+    #aiAnalyzed;
+  };
+
+  public type Location = {
+    latitude : Float;
+    longitude : Float;
+    accuracy : Float; // in meters
+  };
+
+  public type AccidentRecord = {
+    id : Text;
+    detectionMethod : DetectionMethod;
+    location : Location;
+    timestamp : Time.Time;
+    images : [Storage.ExternalBlob];
+    description : Text;
+    analysisResults : ?Text; // Text in case it's AI analysis results
+  };
+
+  let accidentRecords = Map.empty<Text, AccidentRecord>();
 
   let detectionHistory = Map.empty<Text, DetectionResult>();
 
@@ -333,7 +358,7 @@ actor {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view obstacle events");
     };
-    obstacleEvents.values().toArray().sort<ObstacleEvent>();
+    obstacleEvents.values().toArray();
   };
 
   public query ({ caller }) func getObstacleEvent(id : Text) : async ObstacleEvent {
@@ -386,5 +411,49 @@ actor {
     };
     let allEvents = obstacleEvents.values().toArray();
     allEvents.filter(func(e) { e.type_ == "Pothole" });
+  };
+
+  // New functions for accident records
+
+  public shared ({ caller }) func addAccidentRecord(
+    id : Text,
+    method : DetectionMethod,
+    location : Location,
+    timestamp : Time.Time,
+    images : [Storage.ExternalBlob],
+    description : Text,
+    analysisResults : ?Text,
+  ) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can add accident records");
+    };
+
+    let record : AccidentRecord = {
+      id;
+      detectionMethod = method;
+      location;
+      timestamp;
+      images;
+      description;
+      analysisResults;
+    };
+    accidentRecords.add(id, record);
+  };
+
+  public query ({ caller }) func getAccidentRecord(id : Text) : async AccidentRecord {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access accident records");
+    };
+    switch (accidentRecords.get(id)) {
+      case (null) { Runtime.trap("Accident record not found") };
+      case (?record) { record };
+    };
+  };
+
+  public query ({ caller }) func getAllAccidentRecords() : async [AccidentRecord] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access accident records");
+    };
+    accidentRecords.values().toArray();
   };
 };
