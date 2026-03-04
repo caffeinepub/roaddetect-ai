@@ -109,6 +109,12 @@ export default function AccidentReportDialog({
         setIsAnalyzing(false);
       };
 
+      img.onerror = () => {
+        toast.error("Failed to load image for analysis");
+        setIsAnalyzing(false);
+        URL.revokeObjectURL(url);
+      };
+
       img.src = url;
     } catch (error) {
       console.error("Analysis error:", error);
@@ -386,13 +392,8 @@ export default function AccidentReportDialog({
               <Button
                 data-ocid="accident_report.submit_button"
                 onClick={handleManualSubmit}
-                variant="outline"
-                className="flex-1 border-primary/60 hover:border-primary hover:bg-primary/10 hover:text-primary transition-all"
-                disabled={
-                  !location ||
-                  !description.trim() ||
-                  addAccidentMutation.isPending
-                }
+                className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground border border-primary/60 transition-all"
+                disabled={!description.trim() || addAccidentMutation.isPending}
               >
                 {addAccidentMutation.isPending
                   ? "Submitting..."
@@ -404,7 +405,6 @@ export default function AccidentReportDialog({
                 className="flex-1 bg-emergency hover:bg-emergency/90 text-emergency-foreground border border-emergency/60"
                 disabled={
                   (selectedFiles.length === 0 && !capturedPhoto) ||
-                  !location ||
                   isAnalyzing ||
                   addAccidentMutation.isPending
                 }

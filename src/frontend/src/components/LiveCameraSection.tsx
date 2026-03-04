@@ -36,6 +36,7 @@ import {
   CameraOff,
   CheckCircle2,
   Cpu,
+  Eye,
   Loader2,
   Play,
   RefreshCw,
@@ -352,9 +353,9 @@ export default function LiveCameraSection({
     }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Throttle ML processing separately: run every ~333ms (3fps) to keep UI smooth
+    // Throttle ML processing: target ~20fps (50ms), back off to 100ms if processing is slow
     const targetFrameTime =
-      performanceMetricsRef.current.avgFrameTime > 300 ? 500 : 333;
+      performanceMetricsRef.current.avgFrameTime > 100 ? 100 : 50;
 
     if (timeSinceLastProcess < targetFrameTime) {
       animationFrameRef.current = requestAnimationFrame(processFrame);
@@ -1005,6 +1006,129 @@ export default function LiveCameraSection({
                   {detectionCount.emergencies}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Live Detected Data Panel */}
+          {isDetecting && metrics && (
+            <div className="rounded-lg border border-primary/30 bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Eye className="h-4 w-4 text-primary" />
+                Live Detection Data
+                <Badge variant="secondary" className="ml-auto text-xs">
+                  {realTimeFPS.toFixed(1)} FPS
+                </Badge>
+              </div>
+
+              {/* Road Info */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
+                  <span className="text-muted-foreground">Road Type</span>
+                  <span className="font-medium capitalize">
+                    {metrics.roadType || "Analyzing..."}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
+                  <span className="text-muted-foreground">Confidence</span>
+                  <span className="font-medium">
+                    {(metrics.confidenceScore * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
+                  <span className="text-muted-foreground">Environment</span>
+                  <span className="font-medium capitalize">
+                    {metrics.environmentalConditions?.lighting || "Normal"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
+                  <span className="text-muted-foreground">Weather</span>
+                  <span className="font-medium capitalize">
+                    {metrics.environmentalConditions?.weather || "Clear"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Detected Objects */}
+              {obstacles.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Detected Objects
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {obstacles.map((obs) => (
+                      <Badge
+                        key={obs.id}
+                        variant={
+                          obs.riskLevel.level === "High"
+                            ? "destructive"
+                            : obs.riskLevel.level === "Moderate"
+                              ? "default"
+                              : "secondary"
+                        }
+                        className="text-xs gap-1"
+                      >
+                        {obs.type}
+                        {obs.motion && (
+                          <span className="opacity-70">• {obs.motion}</span>
+                        )}
+                        <span className="opacity-70">
+                          {(obs.confidenceLevel * 100).toFixed(0)}%
+                        </span>
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Potholes */}
+              {potholes.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Potholes
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {potholes.map((p) => (
+                      <Badge
+                        key={p.id}
+                        variant="outline"
+                        className="text-xs border-warning/60 text-warning"
+                      >
+                        {p.severity} • {p.distance.toFixed(0)}m away
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Emergency Conditions */}
+              {emergencyConditions.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-destructive uppercase tracking-wide">
+                    Emergency Alerts
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {emergencyConditions.map((ec) => (
+                      <Badge
+                        key={ec.id}
+                        variant="destructive"
+                        className="text-xs"
+                      >
+                        {ec.type} — {ec.description}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* No detections message */}
+              {obstacles.length === 0 &&
+                potholes.length === 0 &&
+                emergencyConditions.length === 0 && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-green-500" />
+                    Road clear — no obstacles detected
+                  </div>
+                )}
             </div>
           )}
         </CardContent>

@@ -85,9 +85,9 @@ export default {
             },
             boxShadow: {
                 xs: '0 1px 2px 0 rgba(0,0,0,0.05)',
-                'glow-sm': '0 0 10px oklch(0.68 0.24 42 / 0.4)',
-                'glow': '0 0 20px oklch(0.68 0.24 42 / 0.4)',
-                'glow-lg': '0 0 35px oklch(0.68 0.24 42 / 0.5)'
+                'glow-sm': '0 0 10px oklch(0.70 0.25 38 / 0.45)',
+                'glow': '0 0 20px oklch(0.70 0.25 38 / 0.45)',
+                'glow-lg': '0 0 35px oklch(0.70 0.25 38 / 0.55)'
             },
             keyframes: {
                 'slide-in': {
