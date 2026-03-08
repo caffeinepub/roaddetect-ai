@@ -10,12 +10,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DetectionResult } from "@/types/detection";
 import {
   AlertTriangle,
+  Cloud,
   Construction,
   Droplets,
+  Eye,
   Image,
   Layers,
   MapPin,
   Navigation,
+  Sun,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -32,6 +35,21 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
   const potholeCount =
     result.roadSurfaceFeatures?.potholes?.detections.length || 0;
 
+  const weather = result.environmentalConditions.weather;
+  const lighting = result.environmentalConditions.lighting;
+  const fogLikelihood = result.environmentalConditions.fogLikelihood ?? 0;
+  const visibility = result.environmentalConditions.visibility ?? 1;
+
+  const isFoggy =
+    weather === "Foggy" || weather === "Heavy Fog" || fogLikelihood > 0.4;
+  const isHeavyFog = weather === "Heavy Fog" || fogLikelihood > 0.65;
+
+  function getWeatherIcon() {
+    if (isFoggy) return <Cloud className="h-4 w-4" />;
+    if (weather === "Rainy") return <Droplets className="h-4 w-4" />;
+    return <Sun className="h-4 w-4" />;
+  }
+
   return (
     <Card className="border-primary/30">
       <CardHeader>
@@ -45,6 +63,50 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {/* Environmental conditions summary */}
+        <div className="mb-4 flex flex-wrap gap-2 items-center">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-muted border border-border">
+            {getWeatherIcon()}
+            <span>{weather}</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-muted border border-border">
+            <Sun className="h-4 w-4" />
+            <span>{lighting}</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-muted border border-border">
+            <Eye className="h-4 w-4" />
+            <span>Visibility: {(visibility * 100).toFixed(0)}%</span>
+          </div>
+        </div>
+
+        {/* Fog warning banner */}
+        {isFoggy && (
+          <div
+            className={`mb-4 flex items-start gap-3 p-4 rounded-xl border ${
+              isHeavyFog
+                ? "bg-red-500/10 border-red-500/40 text-red-400"
+                : "bg-yellow-500/10 border-yellow-500/40 text-yellow-400"
+            }`}
+          >
+            <Cloud className="h-5 w-5 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-semibold text-sm">
+                {isHeavyFog
+                  ? "Heavy Fog Detected"
+                  : "Foggy Conditions Detected"}
+              </p>
+              <p className="text-xs mt-0.5 opacity-80">
+                {isHeavyFog
+                  ? "Visibility is severely reduced. Pothole and obstacle detection are suppressed to prevent false positives. Drive with extreme caution and use fog lights."
+                  : "Reduced visibility detected. Some detections may be limited. Pothole analysis is suppressed to avoid false positives in foggy conditions."}
+              </p>
+              <p className="text-xs mt-1 opacity-70">
+                Fog likelihood: {(fogLikelihood * 100).toFixed(0)}%
+              </p>
+            </div>
+          </div>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="flex flex-wrap w-full h-auto gap-2 p-2 bg-muted/50">
             <TabsTrigger

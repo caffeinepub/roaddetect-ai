@@ -70,7 +70,6 @@ export const useCamera = (config: CameraConfig = {}) => {
             facingMode: facing,
             width: { ideal: width },
             height: { ideal: height },
-            frameRate: { ideal: 30, min: 20 },
           },
         };
 

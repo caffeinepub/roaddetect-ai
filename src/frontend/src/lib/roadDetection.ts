@@ -525,14 +525,22 @@ export async function processRoadDetection(
     canvas.height,
   );
 
-  // Detect potholes on road surface
-  const potholes = detectPotholes(
-    preprocessedData,
-    canvas.width,
-    canvas.height,
-    enhancedMask,
-    environmentalConditions,
-  );
+  // Detect potholes on road surface — skip in foggy/low-visibility conditions
+  // because dark-region analysis produces false positives in fog
+  const isFogCondition =
+    environmentalConditions.weather === "Foggy" ||
+    environmentalConditions.weather === "Heavy Fog" ||
+    (environmentalConditions.fogLikelihood !== undefined &&
+      environmentalConditions.fogLikelihood > 0.4);
+  const potholes = isFogCondition
+    ? []
+    : detectPotholes(
+        preprocessedData,
+        canvas.width,
+        canvas.height,
+        enhancedMask,
+        environmentalConditions,
+      );
 
   // Extract road surface features
   let roadSurfaceFeatures: RoadSurfaceFeatures | undefined;
@@ -628,11 +636,11 @@ export async function processRoadDetection(
     hwCapabilities,
   );
 
-  // Detect obstacles if enabled
+  // Detect obstacles if enabled — suppress in foggy conditions to avoid false positives
   let obstacleDetection:
     | Awaited<ReturnType<typeof detectObstacles>>
     | undefined;
-  if (enableObstacleDetection) {
+  if (enableObstacleDetection && !isFogCondition) {
     try {
       obstacleDetection = await detectObstacles(
         imageUrl,
@@ -643,6 +651,25 @@ export async function processRoadDetection(
     } catch (error) {
       console.error("Obstacle detection error:", error);
     }
+  } else if (isFogCondition) {
+    // In fog, return empty obstacle result with fog warning
+    obstacleDetection = {
+      obstacles: [],
+      emergencyConditions: [
+        {
+          id: `fog_warning_${Date.now()}`,
+          type: "Reduced Visibility",
+          description:
+            "Foggy conditions detected — obstacle detection suppressed to prevent false positives. Drive with extreme caution.",
+          severity: {
+            level: "Warning" as const,
+            urgency: "Reduce speed and use fog lights",
+          },
+        },
+      ],
+      visualizationUrl: imageUrl,
+      visualizationData: new Uint8Array(0),
+    };
   }
 
   return {
@@ -845,10 +872,14 @@ function analyzeEnvironment(
   else if (avgBrightness > 30) lighting = "Dusk";
   else lighting = "Night";
 
-  // Determine weather with improved detection
+  // Determine weather with improved fog detection
+  // Fog: image looks washed out — high gray ratio AND mid-high brightness (not dark)
   let weather: string;
-  if (grayRatio > 0.5) weather = "Heavy Fog";
-  else if (grayRatio > 0.3) weather = "Foggy";
+  const isFoggy = grayRatio > 0.25 && avgBrightness > 90 && avgBrightness < 230;
+  const isHeavyFog =
+    grayRatio > 0.45 && avgBrightness > 100 && avgBrightness < 230;
+  if (isHeavyFog) weather = "Heavy Fog";
+  else if (isFoggy) weather = "Foggy";
   else if (avgBlue > 140 && avgBrightness > 150) weather = "Clear";
   else if (darkRatio > 0.4 && avgBrightness < 80) weather = "Rainy";
   else if (avgBrightness < 100) weather = "Overcast";
@@ -858,16 +889,19 @@ function analyzeEnvironment(
 
   // Visibility score (0-1, higher is better visibility)
   let visibility = 1.0;
-  if (grayRatio > 0.5) visibility = 0.3;
-  else if (grayRatio > 0.3) visibility = 0.5;
+  if (isHeavyFog) visibility = 0.2;
+  else if (isFoggy) visibility = 0.4;
   else if (grayRatio > 0.15) visibility = 0.7;
   else if (avgBrightness < 40)
     visibility = 0.4; // Night reduces visibility
   else if (avgBrightness < 70) visibility = 0.6; // Low light reduces visibility
   visibility = Math.max(0.1, Math.min(1.0, visibility));
 
-  // Fog likelihood (0-1)
-  const fogLikelihood = Math.min(1.0, grayRatio * 2.5);
+  // Fog likelihood (0-1) — boosted sensitivity
+  const fogLikelihood = Math.min(
+    1.0,
+    isFoggy ? grayRatio * 3.0 : grayRatio * 1.5,
+  );
 
   // Precipitation likelihood (0-1)
   let precipitationLikelihood = 0;
