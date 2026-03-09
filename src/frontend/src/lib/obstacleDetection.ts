@@ -37,6 +37,68 @@ export interface ObstacleDetectionResult {
 }
 
 /**
+ * Compute Intersection-over-Union (IoU) between two bounding boxes.
+ */
+function computeIoU(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): number {
+  const ax2 = a.x + a.width;
+  const ay2 = a.y + a.height;
+  const bx2 = b.x + b.width;
+  const by2 = b.y + b.height;
+
+  const interX1 = Math.max(a.x, b.x);
+  const interY1 = Math.max(a.y, b.y);
+  const interX2 = Math.min(ax2, bx2);
+  const interY2 = Math.min(ay2, by2);
+
+  const interW = Math.max(0, interX2 - interX1);
+  const interH = Math.max(0, interY2 - interY1);
+  const interArea = interW * interH;
+
+  const aArea = a.width * a.height;
+  const bArea = b.width * b.height;
+  const unionArea = aArea + bArea - interArea;
+
+  return unionArea > 0 ? interArea / unionArea : 0;
+}
+
+/**
+ * Apply Non-Maximum Suppression to remove overlapping bounding boxes.
+ * Keeps the highest-confidence box and suppresses any box whose IoU
+ * with a kept box exceeds iouThreshold.
+ */
+function applyNMS(
+  obstacles: ObstacleInfo[],
+  iouThreshold = 0.45,
+): ObstacleInfo[] {
+  if (obstacles.length === 0) return [];
+
+  // Sort by confidence descending
+  const sorted = [...obstacles].sort(
+    (a, b) => b.confidenceLevel - a.confidenceLevel,
+  );
+
+  const kept: ObstacleInfo[] = [];
+  const suppressed = new Set<number>();
+
+  for (let i = 0; i < sorted.length; i++) {
+    if (suppressed.has(i)) continue;
+    kept.push(sorted[i]);
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (suppressed.has(j)) continue;
+      const iou = computeIoU(sorted[i].boundingBox, sorted[j].boundingBox);
+      if (iou > iouThreshold) {
+        suppressed.add(j);
+      }
+    }
+  }
+
+  return kept;
+}
+
+/**
  * Detect obstacles in the image/video frame
  */
 export async function detectObstacles(
@@ -95,7 +157,8 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Detect obstacles using color segmentation and position analysis
+ * Detect obstacles using color segmentation and position analysis.
+ * Applies NMS to ensure only one bounding box per detected object.
  */
 function detectObstaclesInFrame(
   data: Uint8ClampedArray,
@@ -105,7 +168,7 @@ function detectObstaclesInFrame(
 ): ObstacleInfo[] {
   const obstacles: ObstacleInfo[] = [];
   const visited = new Uint8Array(width * height);
-  const minObstacleSize = 50; // Minimum pixels for an obstacle
+  const minObstacleSize = 200; // Raised from 50 — filters tiny false-positive fragments
 
   // Focus on road area and immediate surroundings
   const roadStartY = Math.floor(height * 0.3);
@@ -144,7 +207,8 @@ function detectObstaclesInFrame(
             height,
             obstacles.length,
           );
-          if (obstacle) {
+          // Only keep obstacles above the raised confidence threshold
+          if (obstacle && obstacle.confidenceLevel >= 0.6) {
             obstacles.push(obstacle);
           }
         }
@@ -152,7 +216,8 @@ function detectObstaclesInFrame(
     }
   }
 
-  return obstacles;
+  // Apply NMS to eliminate overlapping duplicate boxes, then cap at 10 results
+  return applyNMS(obstacles).slice(0, 10);
 }
 
 function calculateSaturation(r: number, g: number, b: number): number {
@@ -281,8 +346,8 @@ function analyzeObstacleRegion(
   // Determine risk level
   const riskLevel = determineRiskLevel(isOnRoad, centerY, height, maxY - minY);
 
-  // Calculate confidence based on region properties
-  const confidence = Math.min(0.95, 0.6 + (pixels.length / 1000) * 0.3);
+  // Raised confidence floor: 0.60 base, scaling up with region size
+  const confidence = Math.min(0.95, 0.6 + (pixels.length / 1000) * 0.35);
 
   return {
     id: `obstacle_${Date.now()}_${index}`,
