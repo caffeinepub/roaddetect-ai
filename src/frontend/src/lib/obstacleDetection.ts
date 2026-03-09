@@ -17,6 +17,7 @@ export interface ObstacleInfo {
     width: number;
     height: number;
   };
+  estimatedDistance?: number; // meters
 }
 
 export interface EmergencyCondition {
@@ -96,6 +97,24 @@ function applyNMS(
   }
 
   return kept;
+}
+
+/**
+ * Estimate distance in meters from vertical position in image.
+ * Objects lower in the image are closer to the camera.
+ * Using a perspective heuristic: bottom 30% ~ 0-8m, middle ~ 8-25m, top ~ 25-80m.
+ */
+function estimateDistance(boxBottomY: number, imageHeight: number): number {
+  const normalizedY = boxBottomY / imageHeight; // 0 = top, 1 = bottom
+
+  if (normalizedY >= 0.85) return 2.0;
+  if (normalizedY >= 0.75) return 4.0;
+  if (normalizedY >= 0.7) return 5.5;
+  if (normalizedY >= 0.6) return 9.0;
+  if (normalizedY >= 0.5) return 14.0;
+  if (normalizedY >= 0.4) return 22.0;
+  if (normalizedY >= 0.3) return 35.0;
+  return 60.0;
 }
 
 /**
@@ -217,7 +236,16 @@ function detectObstaclesInFrame(
   }
 
   // Apply NMS to eliminate overlapping duplicate boxes, then cap at 10 results
-  return applyNMS(obstacles).slice(0, 10);
+  const nmsObstacles = applyNMS(obstacles).slice(0, 10);
+
+  // Attach estimated distance to each obstacle
+  return nmsObstacles.map((obs) => ({
+    ...obs,
+    estimatedDistance: estimateDistance(
+      obs.boundingBox.y + obs.boundingBox.height,
+      height,
+    ),
+  }));
 }
 
 function calculateSaturation(r: number, g: number, b: number): number {
@@ -490,6 +518,129 @@ function assessEmergencyConditions(
   return emergencies;
 }
 
+/**
+ * Draw a warning triangle (⚠) icon at the given position.
+ */
+function drawWarningTriangle(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+): void {
+  const half = size / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - half); // top
+  ctx.lineTo(cx + half, cy + half); // bottom right
+  ctx.lineTo(cx - half, cy + half); // bottom left
+  ctx.closePath();
+  ctx.fillStyle = "rgba(255, 200, 0, 0.95)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.7)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // Exclamation
+  ctx.fillStyle = "#000";
+  ctx.font = `bold ${Math.floor(size * 0.45)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("!", cx, cy + half * 0.2);
+  ctx.restore();
+}
+
+/**
+ * Draw a stop-sign style octagon icon at the given position.
+ */
+function drawStopIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+): void {
+  const r = size / 2;
+  const sides = 8;
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const angle = (Math.PI / sides) * (2 * i + 1) - Math.PI / 2;
+    const px = cx + r * Math.cos(angle);
+    const py = cy + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "rgba(220, 38, 38, 0.95)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.8)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // STOP text
+  ctx.fillStyle = "#fff";
+  ctx.font = `bold ${Math.floor(size * 0.28)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("STOP", cx, cy);
+  ctx.restore();
+}
+
+/**
+ * Draw road zone color overlay (green=safe, yellow=caution, red=danger)
+ * as semi-transparent trapezoid bands over the canvas.
+ */
+function drawRoadZones(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  const greenEnd = height * 0.4;
+  const yellowEnd = height * 0.7;
+
+  // Green zone (top 40% — far/safe)
+  const greenGrad = ctx.createLinearGradient(0, 0, 0, greenEnd);
+  greenGrad.addColorStop(0, "rgba(34, 197, 94, 0.0)");
+  greenGrad.addColorStop(1, "rgba(34, 197, 94, 0.18)");
+  ctx.fillStyle = greenGrad;
+  ctx.fillRect(0, 0, width, greenEnd);
+
+  // Yellow zone (40-70% — caution)
+  const yellowGrad = ctx.createLinearGradient(0, greenEnd, 0, yellowEnd);
+  yellowGrad.addColorStop(0, "rgba(251, 191, 36, 0.18)");
+  yellowGrad.addColorStop(1, "rgba(251, 191, 36, 0.28)");
+  ctx.fillStyle = yellowGrad;
+  ctx.fillRect(0, greenEnd, width, yellowEnd - greenEnd);
+
+  // Red zone (bottom 30% — danger)
+  const redGrad = ctx.createLinearGradient(0, yellowEnd, 0, height);
+  redGrad.addColorStop(0, "rgba(239, 68, 68, 0.22)");
+  redGrad.addColorStop(1, "rgba(239, 68, 68, 0.38)");
+  ctx.fillStyle = redGrad;
+  ctx.fillRect(0, yellowEnd, width, height - yellowEnd);
+
+  // Zone labels (small, top-right corner of each zone)
+  const labelFont = `bold ${Math.max(10, Math.floor(width * 0.022))}px Inter, sans-serif`;
+  ctx.font = labelFont;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "top";
+  const labelPad = width * 0.015;
+
+  ctx.fillStyle = "rgba(34, 197, 94, 0.9)";
+  ctx.fillText("SAFE", width - labelPad, labelPad);
+
+  ctx.fillStyle = "rgba(251, 191, 36, 0.9)";
+  ctx.fillText("CAUTION", width - labelPad, greenEnd + labelPad);
+
+  ctx.fillStyle = "rgba(239, 68, 68, 0.9)";
+  ctx.fillText("DANGER", width - labelPad, yellowEnd + labelPad);
+}
+
+/**
+ * Create obstacle visualization matching STONKAM-style:
+ * - Road zone color overlay (green/yellow/red)
+ * - Blue bounding box per obstacle (single, NMS-enforced)
+ * - Label: Type + Confidence above box
+ * - Distance estimate below label
+ * - Warning triangle + stop icon for danger zone obstacles
+ */
 function createObstacleVisualization(
   img: HTMLImageElement,
   obstacles: ObstacleInfo[],
@@ -502,56 +653,129 @@ function createObstacleVisualization(
   const ctx = canvas.getContext("2d", { alpha: true })!;
 
   // Draw original image
-  ctx.drawImage(img, 0, 0);
+  ctx.drawImage(img, 0, 0, width, height);
 
-  // Draw obstacle bounding boxes and labels
+  // Draw road zone overlay
+  drawRoadZones(ctx, width, height);
+
+  const dangerThresholdY = height * 0.7; // bottom 30% = danger
+  const dangerDistanceM = 5.0; // under 5m = danger
+
+  const baseFontSize = Math.max(11, Math.floor(width * 0.028));
+  const labelPadX = 8;
+  const labelPadY = 5;
+  const lineHeight = baseFontSize + 4;
+
   for (const obstacle of obstacles) {
-    const { boundingBox, riskLevel, type, confidenceLevel } = obstacle;
+    const { boundingBox, type, confidenceLevel } = obstacle;
+    const boxBottom = boundingBox.y + boundingBox.height;
+    const dist =
+      obstacle.estimatedDistance ?? estimateDistance(boxBottom, height);
 
-    // Set color based on risk level
-    let color: string;
-    let shadowColor: string;
-    if (riskLevel.level === "High") {
-      color = "rgba(239, 68, 68, 0.8)"; // Red
-      shadowColor = "rgba(239, 68, 68, 0.6)";
-    } else if (riskLevel.level === "Moderate") {
-      color = "rgba(251, 191, 36, 0.8)"; // Yellow
-      shadowColor = "rgba(251, 191, 36, 0.6)";
-    } else {
-      color = "rgba(34, 197, 94, 0.8)"; // Green
-      shadowColor = "rgba(34, 197, 94, 0.6)";
-    }
+    const isDanger = boxBottom > dangerThresholdY || dist < dangerDistanceM;
 
-    // Draw bounding box with glow
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
+    // ---- Bounding box ----
+    // Blue box (STONKAM style), red tint for danger zone
+    const boxColor = isDanger
+      ? "rgba(239, 68, 68, 0.9)"
+      : "rgba(59, 130, 246, 0.9)"; // blue
+    const shadowColor = isDanger
+      ? "rgba(239, 68, 68, 0.5)"
+      : "rgba(59, 130, 246, 0.5)";
+
+    ctx.strokeStyle = boxColor;
+    ctx.lineWidth = Math.max(2, Math.floor(width * 0.004));
     ctx.shadowColor = shadowColor;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 8;
     ctx.strokeRect(
       boundingBox.x,
       boundingBox.y,
       boundingBox.width,
       boundingBox.height,
     );
-
-    // Draw label background
     ctx.shadowBlur = 0;
-    ctx.fillStyle = color;
-    const labelText = `${type} (${(confidenceLevel * 100).toFixed(0)}%)`;
-    const labelWidth = ctx.measureText(labelText).width + 16;
-    const labelHeight = 24;
-    const labelX = boundingBox.x;
-    const labelY = Math.max(boundingBox.y - labelHeight - 4, 0);
 
-    ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+    // ---- Labels ----
+    const labelText = `${type} ${(confidenceLevel * 100).toFixed(0)}%`;
+    const distText = `~${dist.toFixed(1)}m`;
 
-    // Draw label text
-    ctx.fillStyle = "white";
-    ctx.font = "bold 12px Inter, sans-serif";
-    ctx.fillText(labelText, labelX + 8, labelY + 16);
+    ctx.font = `bold ${baseFontSize}px Inter, sans-serif`;
+    const labelW =
+      Math.max(
+        ctx.measureText(labelText).width,
+        ctx.measureText(distText).width,
+      ) +
+      labelPadX * 2;
+    const labelH = lineHeight * 2 + labelPadY * 2;
+
+    const labelX = Math.min(boundingBox.x, width - labelW - 2);
+    let labelY = boundingBox.y - labelH - 4;
+    if (labelY < 0) labelY = boundingBox.y + boundingBox.height + 4;
+
+    // Background pill
+    const bgColor = isDanger
+      ? "rgba(239, 68, 68, 0.85)"
+      : "rgba(30, 64, 175, 0.85)"; // blue-800
+    ctx.fillStyle = bgColor;
+    roundRect(ctx, labelX, labelY, labelW, labelH, 4);
+    ctx.fill();
+
+    // Label text
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${baseFontSize}px Inter, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(labelText, labelX + labelPadX, labelY + labelPadY);
+
+    // Distance text (slightly smaller, cyan)
+    ctx.fillStyle = isDanger ? "#fde68a" : "#93c5fd";
+    ctx.font = `${baseFontSize - 1}px Inter, sans-serif`;
+    ctx.fillText(distText, labelX + labelPadX, labelY + labelPadY + lineHeight);
+
+    // ---- Warning icons for danger zone ----
+    if (isDanger) {
+      const iconSize = Math.max(18, Math.floor(width * 0.04));
+      const iconY = labelY - iconSize - 6;
+      const iconCenterY = Math.max(iconSize / 2 + 2, iconY + iconSize / 2);
+      const boxCenterX = boundingBox.x + boundingBox.width / 2;
+
+      // Draw triangle (⚠) to the left of center
+      drawWarningTriangle(
+        ctx,
+        boxCenterX - iconSize * 0.7,
+        iconCenterY,
+        iconSize,
+      );
+      // Draw stop icon to the right of center
+      drawStopIcon(ctx, boxCenterX + iconSize * 0.7, iconCenterY, iconSize);
+    }
   }
 
   return canvas;
+}
+
+/**
+ * Helper: draw a rounded rectangle path.
+ */
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
 
 async function imageUrlToBytes(url: string): Promise<Uint8Array> {
