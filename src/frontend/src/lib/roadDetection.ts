@@ -89,7 +89,7 @@ function detectPotholes(
   darkRegions.forEach((region, index) => {
     // Calculate region properties
     const area = region.pixels.length;
-    const minArea = 50; // Minimum pixels for a pothole
+    const minArea = 120; // Minimum pixels for a pothole — was 50, raised to reduce false positives
 
     if (area < minArea) return;
 
@@ -194,7 +194,8 @@ function detectPotholes(
     confidence = Math.max(0.3, Math.min(0.95, confidence));
 
     // Only include potholes with reasonable confidence
-    if (confidence > 0.4) {
+    if (confidence > 0.55) {
+      // was 0.4
       potholes.push({
         id: `pothole_${Date.now()}_${index}`,
         position: { x: centerX, y: centerY },
@@ -295,7 +296,7 @@ function detectDarkRegions(
   const regions: Array<{ pixels: Array<[number, number]> }> = [];
 
   // Threshold for dark pixels
-  const darknessThreshold = 80;
+  const darknessThreshold = 60; // was 80 — 80 catches normal road shadows
 
   for (let y = Math.floor(height * 0.4); y < height; y++) {
     for (let x = 0; x < width; x++) {
