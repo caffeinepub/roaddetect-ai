@@ -9,7 +9,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DetectionResult } from "@/types/detection";
 import {
-  AlertTriangle,
+  CheckCircle2,
   Cloud,
   Construction,
   Droplets,
@@ -40,9 +40,24 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
   const fogLikelihood = result.environmentalConditions.fogLikelihood ?? 0;
   const visibility = result.environmentalConditions.visibility ?? 1;
 
+  // Require fogLikelihood >= 0.70 confidence threshold to show fog detection
+  const FOG_THRESHOLD = 0.7;
   const isFoggy =
-    weather === "Foggy" || weather === "Heavy Fog" || fogLikelihood > 0.4;
-  const isHeavyFog = weather === "Heavy Fog" || fogLikelihood > 0.65;
+    (weather === "Foggy" || weather === "Heavy Fog") &&
+    fogLikelihood >= FOG_THRESHOLD;
+  const isHeavyFog = weather === "Heavy Fog" && fogLikelihood >= FOG_THRESHOLD;
+  const fogConfidencePct = Math.round(fogLikelihood * 100);
+
+  // Wet & Slip detection — confidence threshold 0.7
+  const WET_THRESHOLD = 0.7;
+  const wetnessScore =
+    result.roadSurfaceFeatures?.wetSurface?.wetnessScore ?? 0;
+  const slipScore =
+    result.roadSurfaceFeatures?.wetSurface?.slipperinessScore ?? 0;
+  const wetConfidence = Math.max(wetnessScore, slipScore);
+  const isWet = wetConfidence >= WET_THRESHOLD;
+  const isHighRisk = wetConfidence >= 0.82;
+  const wetPct = Math.round(wetConfidence * 100);
 
   function getWeatherIcon() {
     if (isFoggy) return <Cloud className="h-4 w-4" />;
@@ -79,38 +94,100 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
           </div>
         </div>
 
-        {/* Fog warning banner */}
-        {isFoggy && (
-          <div
-            className={`mb-4 flex items-start gap-3 p-4 rounded-xl border ${
-              isHeavyFog
+        {/* Fog Detection Result */}
+        <div
+          data-ocid="fog.card"
+          className={`mb-4 flex items-center gap-3 p-4 rounded-xl border ${
+            isFoggy
+              ? isHeavyFog
                 ? "bg-red-500/10 border-red-500/40 text-red-400"
                 : "bg-yellow-500/10 border-yellow-500/40 text-yellow-400"
-            }`}
-          >
-            <Cloud className="h-5 w-5 mt-0.5 shrink-0" />
-            <div>
-              <p className="font-semibold text-sm">
-                {isHeavyFog
-                  ? "Heavy Fog Detected"
-                  : "Foggy Conditions Detected"}
-              </p>
+              : "bg-green-500/10 border-green-500/30 text-green-400"
+          }`}
+        >
+          <Cloud className="h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold text-sm">
+              {isFoggy
+                ? `${isHeavyFog ? "Heavy " : ""}Fog Detected (${fogConfidencePct}%)`
+                : "No Fog Detected"}
+            </p>
+            {isFoggy && (
               <p className="text-xs mt-0.5 opacity-80">
                 {isHeavyFog
-                  ? "Visibility is severely reduced. Pothole and obstacle detection are suppressed to prevent false positives. Drive with extreme caution and use fog lights."
-                  : "Reduced visibility detected. Some detections may be limited. Pothole analysis is suppressed to avoid false positives in foggy conditions."}
+                  ? "Visibility severely reduced. Obstacle detection suppressed. Drive with extreme caution and use fog lights."
+                  : "Reduced visibility detected. Some detections may be limited."}
               </p>
-              <p className="text-xs mt-1 opacity-70">
-                Fog likelihood: {(fogLikelihood * 100).toFixed(0)}%
-              </p>
-            </div>
+            )}
           </div>
-        )}
+        </div>
+
+        {/* Pothole Detection Result */}
+        <div
+          data-ocid="pothole.card"
+          className={`mb-4 flex items-center gap-3 p-4 rounded-xl border ${
+            hasPotholes
+              ? "bg-orange-500/10 border-orange-500/40 text-orange-400"
+              : "bg-green-500/10 border-green-500/30 text-green-400"
+          }`}
+        >
+          <Construction className="h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold text-sm">
+              {hasPotholes
+                ? `Pothole Detected (${Math.round(
+                    Math.max(
+                      ...(
+                        result.roadSurfaceFeatures?.potholes?.detections ?? []
+                      ).map((p) => p.confidenceLevel),
+                    ) * 100,
+                  )}%)`
+                : "No Potholes Detected"}
+            </p>
+            {hasPotholes && (
+              <p className="text-xs mt-0.5 opacity-80">
+                {potholeCount} pothole{potholeCount > 1 ? "s" : ""} found. See
+                the Potholes tab for bounding boxes and details.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Wet & Slip Detection Result */}
+        <div
+          data-ocid="wet.card"
+          className={`mb-4 flex items-center gap-3 p-4 rounded-xl border ${
+            isHighRisk
+              ? "bg-red-500/10 border-red-500/40 text-red-400"
+              : isWet
+                ? "bg-yellow-500/10 border-yellow-500/40 text-yellow-400"
+                : "bg-green-500/10 border-green-500/30 text-green-400"
+          }`}
+        >
+          <Droplets className="h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold text-sm">
+              {isHighRisk
+                ? `High Wet & Slip Risk (${wetPct}%)`
+                : isWet
+                  ? `Moderate Wet Surface (${wetPct}%)`
+                  : "No Wet & Slip Risk Detected"}
+            </p>
+            {isWet && (
+              <p className="text-xs mt-0.5 opacity-80">
+                {isHighRisk
+                  ? "Road surface is highly wet or slippery. Reduce speed and increase following distance."
+                  : "Moderate wet surface detected. Drive carefully and watch for slippery areas."}
+              </p>
+            )}
+          </div>
+        </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="flex flex-wrap w-full h-auto gap-2 p-2 bg-muted/50">
             <TabsTrigger
               value="original"
+              data-ocid="results.original.tab"
               className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               <Image className="h-3 w-3" />
@@ -118,20 +195,15 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
             </TabsTrigger>
             <TabsTrigger
               value="road"
+              data-ocid="results.road.tab"
               className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               <MapPin className="h-3 w-3" />
               Road
             </TabsTrigger>
             <TabsTrigger
-              value="obstacles"
-              className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <AlertTriangle className="h-3 w-3" />
-              Obstacles
-            </TabsTrigger>
-            <TabsTrigger
               value="segmentation"
+              data-ocid="results.segmentation.tab"
               className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               <Layers className="h-3 w-3" />
@@ -139,6 +211,7 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
             </TabsTrigger>
             <TabsTrigger
               value="drivable"
+              data-ocid="results.drivable.tab"
               className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               <Navigation className="h-3 w-3" />
@@ -146,18 +219,21 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
             </TabsTrigger>
             <TabsTrigger
               value="edges"
+              data-ocid="results.edges.tab"
               className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Edges
             </TabsTrigger>
             <TabsTrigger
               value="damage"
+              data-ocid="results.damage.tab"
               className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Damage
             </TabsTrigger>
             <TabsTrigger
               value="wet"
+              data-ocid="results.wet.tab"
               className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               <Droplets className="h-3 w-3" />
@@ -166,6 +242,7 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
             {hasPotholes && (
               <TabsTrigger
                 value="potholes"
+                data-ocid="results.potholes.tab"
                 className="text-xs flex items-center gap-1 px-3 py-2 border border-border rounded-md data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Construction className="h-3 w-3" />
@@ -201,60 +278,6 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
                 <Badge variant="secondary">Road: {result.roadType}</Badge>
               </div>
             </div>
-          </TabsContent>
-
-          <TabsContent value="obstacles" className="mt-4">
-            {result.obstacleDetection ? (
-              <div className="space-y-3">
-                <div className="relative rounded-lg overflow-hidden border border-border">
-                  <img
-                    src={result.obstacleDetection.visualizationUrl}
-                    alt="Obstacle Detection"
-                    className="w-full h-auto"
-                  />
-                  <div className="absolute top-2 right-2">
-                    <Badge variant="secondary">
-                      {result.obstacleDetection.obstacles.length} Obstacle(s)
-                    </Badge>
-                  </div>
-                </div>
-                {result.obstacleDetection.obstacles.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {result.obstacleDetection.obstacles.map((obstacle) => (
-                      <div
-                        key={obstacle.id}
-                        className="p-3 rounded-lg border border-border bg-card"
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <Badge
-                            variant={
-                              obstacle.riskLevel.level === "High"
-                                ? "destructive"
-                                : obstacle.riskLevel.level === "Moderate"
-                                  ? "default"
-                                  : "secondary"
-                            }
-                          >
-                            {obstacle.type}
-                            {obstacle.motion && ` • ${obstacle.motion}`}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {(obstacle.confidenceLevel * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {obstacle.riskLevel.description}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                No obstacle detection data available
-              </div>
-            )}
           </TabsContent>
 
           <TabsContent value="segmentation" className="mt-4">
@@ -396,7 +419,8 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
           </TabsContent>
 
           <TabsContent value="wet" className="mt-4">
-            {result.roadSurfaceFeatures?.wetSurface.visualizationUrl ? (
+            {isWet &&
+            result.roadSurfaceFeatures?.wetSurface.visualizationUrl ? (
               <div className="relative rounded-lg overflow-hidden border border-border">
                 <img
                   src={result.roadSurfaceFeatures.wetSurface.visualizationUrl}
@@ -404,26 +428,27 @@ export default function DetectionResults({ result }: DetectionResultsProps) {
                   className="w-full h-auto"
                 />
                 <div className="absolute top-2 right-2 space-x-2">
-                  <Badge variant="secondary">
-                    Wetness:{" "}
-                    {(
-                      result.roadSurfaceFeatures.wetSurface.wetnessScore * 100
-                    ).toFixed(0)}
-                    %
-                  </Badge>
-                  <Badge variant="secondary">
-                    Slip Risk:{" "}
-                    {(
-                      result.roadSurfaceFeatures.wetSurface.slipperinessScore *
-                      100
-                    ).toFixed(0)}
-                    %
+                  <Badge
+                    variant={isHighRisk ? "destructive" : "secondary"}
+                    className="font-semibold"
+                  >
+                    {isHighRisk ? `High Risk ${wetPct}%` : `Wet ${wetPct}%`}
                   </Badge>
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                Wet surface data not available
+              <div
+                data-ocid="wet.empty_state"
+                className="flex flex-col items-center justify-center py-10 gap-3 text-green-400"
+              >
+                <CheckCircle2 className="h-10 w-10 opacity-80" />
+                <p className="font-semibold text-sm">
+                  No Wet &amp; Slip Risk Detected
+                </p>
+                <p className="text-xs text-muted-foreground text-center max-w-xs">
+                  The road surface appears dry. No rain, puddles, oil spills, or
+                  wet reflections were detected.
+                </p>
               </div>
             )}
           </TabsContent>

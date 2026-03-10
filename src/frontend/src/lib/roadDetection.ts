@@ -68,7 +68,13 @@ function detectHardwareCapabilities(): HardwareCapabilities {
 }
 
 /**
- * Detect potholes on the road surface using visual analysis
+ * Improved pothole detection using multi-cue analysis:
+ * - Handles dry dark potholes AND water-filled (reflective) potholes
+ * - Shape analysis: circularity, aspect ratio for oval/circular road holes
+ * - Edge ring detection: strong edges at pothole rim
+ * - Texture discontinuity scoring
+ * - NMS to remove duplicate bounding boxes
+ * - Confidence threshold 0.60
  */
 function detectPotholes(
   data: Uint8ClampedArray,
@@ -77,104 +83,210 @@ function detectPotholes(
   roadMask: Uint8Array,
   environmentalConditions: EnvironmentalConditions,
 ): PotholeDetection[] {
-  const potholes: PotholeDetection[] = [];
+  const candidates: PotholeDetection[] = [];
 
-  // Create edge detection for texture discontinuities
+  // Compute edge map for texture/rim detection
   const edges = detectEdges(data, width, height);
 
-  // Detect dark regions on road surface (potential potholes)
-  const darkRegions = detectDarkRegions(data, width, height, roadMask);
+  // --- Pass 1: Detect dark pothole candidates (dry potholes) ---
+  const darkRegions = detectAnomalousRegions(
+    data,
+    width,
+    height,
+    roadMask,
+    "dark",
+  );
 
-  // Analyze each dark region for pothole characteristics
-  darkRegions.forEach((region, index) => {
-    // Calculate region properties
+  // --- Pass 2: Detect bright/reflective candidates (water-filled potholes) ---
+  const reflectiveRegions = detectAnomalousRegions(
+    data,
+    width,
+    height,
+    roadMask,
+    "reflective",
+  );
+
+  const allRegions = [...darkRegions, ...reflectiveRegions];
+
+  allRegions.forEach((region, index) => {
     const area = region.pixels.length;
-    const minArea = 120; // Minimum pixels for a pothole — was 50, raised to reduce false positives
-
+    const minArea = 150; // lower threshold to catch small potholes
     if (area < minArea) return;
 
-    // Calculate bounding box
+    // ── Bounding box ──────────────────────────────────────────────
     let minX = width;
     let minY = height;
     let maxX = 0;
     let maxY = 0;
     for (const [x, y] of region.pixels) {
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
     }
+    const boxWidth = maxX - minX + 1;
+    const boxHeight = maxY - minY + 1;
 
-    const boxWidth = maxX - minX;
-    const boxHeight = maxY - minY;
+    // ── Aspect ratio guard (potholes are roughly round) ──────────
+    const aspectRatio = boxWidth / Math.max(boxHeight, 1);
+    if (aspectRatio > 4.0 || aspectRatio < 0.25) return; // too elongated = shadow/crack
 
-    // Skip if aspect ratio is too extreme
-    const aspectRatio = boxWidth / boxHeight;
-    if (aspectRatio > 4 || aspectRatio < 0.25) return;
-
-    // Calculate center position
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
-    // Estimate distance based on vertical position (perspective projection)
-    // Assume camera height ~1.5m, road extends to horizon
-    const normalizedY = centerY / height;
-    const distance = estimateDistanceFromPosition(normalizedY, height);
-
-    // Calculate edge strength in region
-    let edgeStrength = 0;
+    // ── Circularity score ─────────────────────────────────────────
+    // Estimate perimeter by counting boundary pixels
+    const pixelSet = new Set(region.pixels.map(([x, y]) => y * width + x));
+    let boundaryPixels = 0;
     for (const [x, y] of region.pixels) {
-      const idx = y * width + x;
-      edgeStrength += edges[idx];
+      const neighbours = [
+        (y - 1) * width + x,
+        (y + 1) * width + x,
+        y * width + (x - 1),
+        y * width + (x + 1),
+      ];
+      for (const n of neighbours) {
+        if (!pixelSet.has(n)) {
+          boundaryPixels++;
+          break;
+        }
+      }
     }
-    edgeStrength /= area;
+    const perimeter = Math.max(boundaryPixels, 1);
+    const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+    // Potholes: 0.1–0.85 (irregular), perfect circle = 1.0, very elongated < 0.05
+    if (circularity < 0.05) return; // definitely not a pothole
 
-    // Calculate darkness score
-    let darknessScore = 0;
+    // ── Edge ring score: high edges at boundary = pothole rim ────
+    let boundaryEdgeSum = 0;
+    let boundaryCount = 0;
+    for (const [x, y] of region.pixels) {
+      const neighbours = [
+        [x - 1, y],
+        [x + 1, y],
+        [x, y - 1],
+        [x, y + 1],
+        [x - 1, y - 1],
+        [x + 1, y + 1],
+        [x - 1, y + 1],
+        [x + 1, y - 1],
+      ];
+      let isBoundary = false;
+      for (const [nx, ny] of neighbours) {
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+          isBoundary = true;
+          break;
+        }
+        if (!pixelSet.has(ny * width + nx)) {
+          isBoundary = true;
+          break;
+        }
+      }
+      if (isBoundary) {
+        const edgeVal = edges[y * width + x];
+        boundaryEdgeSum += edgeVal;
+        boundaryCount++;
+      }
+    }
+    const edgeRingScore =
+      boundaryCount > 0
+        ? Math.min(1, boundaryEdgeSum / boundaryCount / 120)
+        : 0;
+
+    // ── Depth / contrast score ────────────────────────────────────
+    // Compare mean brightness inside region vs surrounding road pixels
+    let innerBrightSum = 0;
     for (const [x, y] of region.pixels) {
       const idx = (y * width + x) * 4;
-      const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-      darknessScore += (255 - brightness) / 255;
+      innerBrightSum += (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
     }
-    darknessScore /= area;
+    const innerBrightMean = innerBrightSum / area;
 
-    // Determine severity based on size, darkness, and edge strength
-    const sizeScore = Math.min(1, area / 500);
-    const severityScore =
-      darknessScore * 0.4 + edgeStrength * 0.3 + sizeScore * 0.3;
+    // Sample surrounding road pixels in expanded bounding box
+    const expandPx = Math.min(
+      20,
+      Math.floor(Math.min(boxWidth, boxHeight) * 0.4),
+    );
+    let outerBrightSum = 0;
+    let outerCount = 0;
+    for (
+      let y = Math.max(0, minY - expandPx);
+      y < Math.min(height, maxY + expandPx);
+      y++
+    ) {
+      for (
+        let x = Math.max(0, minX - expandPx);
+        x < Math.min(width, maxX + expandPx);
+        x++
+      ) {
+        const idx2 = y * width + x;
+        if (pixelSet.has(idx2) || roadMask[idx2] === 0) continue;
+        const pid = idx2 * 4;
+        outerBrightSum += (data[pid] + data[pid + 1] + data[pid + 2]) / 3;
+        outerCount++;
+      }
+    }
+    const outerBrightMean =
+      outerCount > 0 ? outerBrightSum / outerCount : innerBrightMean;
+    const contrastScore = Math.min(
+      1,
+      Math.abs(outerBrightMean - innerBrightMean) / 80,
+    );
 
-    let severity: "Low" | "Moderate" | "High";
-    if (severityScore > 0.7) severity = "High";
-    else if (severityScore > 0.4) severity = "Moderate";
-    else severity = "Low";
+    // ── Texture variance inside region ────────────────────────────
+    // Water-filled potholes have high local variance (ripples, reflections)
+    // Dry potholes have moderate variance (rough surface)
+    // Shadows have low variance (uniform dark)
+    let varianceSum = 0;
+    for (const [x, y] of region.pixels) {
+      const idx = (y * width + x) * 4;
+      const bright = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+      varianceSum += (bright - innerBrightMean) ** 2;
+    }
+    const variance = varianceSum / area;
+    // Normalise: shadow variance ~50, pothole ~200-800, water pothole ~300-1200
+    const varianceScore = Math.min(1, variance / 600);
 
-    // Estimate physical size (rough approximation)
-    const pixelToMeterRatio = 0.01 * (1 + normalizedY * 2); // Increases with distance
-    const estimatedSize = area * pixelToMeterRatio * pixelToMeterRatio;
+    // ── Anti-shadow heuristic ────────────────────────────────────
+    // Shadows: very elongated + low edge ring + low variance
+    const isShadowLike =
+      (aspectRatio > 2.5 || aspectRatio < 0.4) &&
+      edgeRingScore < 0.15 &&
+      varianceScore < 0.12;
+    if (isShadowLike) return;
 
-    // Estimate depth based on darkness and edge characteristics
-    const estimatedDepth = darknessScore * edgeStrength * 15; // cm
+    // ── Anti-road-patch heuristic ─────────────────────────────────
+    // Road patches: nearly rectangular (circularity ~0.78+), low variance, moderate brightness
+    const isRoadPatch =
+      circularity > 0.78 && varianceScore < 0.1 && contrastScore < 0.15;
+    if (isRoadPatch) return;
 
-    // Classify pothole type
-    let potholeType: PotholeDetection["potholeType"];
-    if (edgeStrength > 0.7 && darknessScore > 0.6) {
-      potholeType = "deep";
-    } else if (boxWidth > boxHeight * 2) {
-      potholeType = "edge";
-    } else if (area > 300) {
-      potholeType = "rough_size";
-    } else if (edgeStrength > 0.5) {
-      potholeType = "surface_cracks";
-    } else if (severityScore > 0.6) {
-      potholeType = "complex";
-    } else {
-      potholeType = "unknown";
+    // ── Water/reflective classification ──────────────────────────
+    const isWaterFilled = region.type === "reflective";
+
+    // ── Confidence score ─────────────────────────────────────────
+    // Weighted combination of cues
+    const circularityScore = Math.min(1, circularity / 0.5); // normalise (potholes 0.1–0.6)
+    let confidence =
+      0.3 * circularityScore +
+      0.25 * edgeRingScore +
+      0.25 * contrastScore +
+      0.2 * varianceScore;
+
+    // Bonus: water-filled potholes have both high variance AND a detectable rim
+    if (isWaterFilled && edgeRingScore > 0.2) {
+      confidence = Math.min(confidence + 0.08, 1.0);
+    }
+    // Bonus for clearly circular shapes
+    if (circularity > 0.3 && circularity < 0.9) {
+      confidence = Math.min(confidence + 0.05, 1.0);
+    }
+    // Bonus if multiple cues agree
+    if (edgeRingScore > 0.3 && contrastScore > 0.3) {
+      confidence = Math.min(confidence + 0.06, 1.0);
     }
 
-    // Calculate confidence based on environmental conditions and detection quality
-    let confidence = 0.6 + severityScore * 0.3;
-
-    // Adjust confidence based on environmental conditions
+    // Environmental penalties
     if (environmentalConditions.visibility) {
       confidence *= environmentalConditions.visibility;
     }
@@ -182,71 +294,125 @@ function detectPotholes(
       environmentalConditions.lighting === "Night" ||
       environmentalConditions.lighting === "Dusk"
     ) {
-      confidence *= 0.7;
+      confidence *= 0.75;
     }
     if (
       environmentalConditions.weather === "Foggy" ||
       environmentalConditions.weather === "Heavy Fog"
     ) {
-      confidence *= 0.6;
+      confidence *= 0.65;
     }
 
-    confidence = Math.max(0.3, Math.min(0.95, confidence));
+    confidence = Math.max(0.1, Math.min(0.95, confidence));
 
-    // Only include potholes with reasonable confidence
-    if (confidence > 0.55) {
-      // was 0.4
-      potholes.push({
-        id: `pothole_${Date.now()}_${index}`,
-        position: { x: centerX, y: centerY },
-        boundingBox: {
-          x: minX,
-          y: minY,
-          width: boxWidth,
-          height: boxHeight,
-        },
-        distance,
-        severity,
-        size: estimatedSize,
-        depth: estimatedDepth,
-        confidenceLevel: confidence,
-        potholeType,
-      });
+    // Confidence threshold 0.60 per requirements
+    if (confidence < 0.6) return;
+
+    // ── Severity ─────────────────────────────────────────────────
+    const sizeScore = Math.min(1, area / 600);
+    const severityScore =
+      edgeRingScore * 0.35 + contrastScore * 0.35 + sizeScore * 0.3;
+    let severity: "Low" | "Moderate" | "High";
+    if (severityScore > 0.6) severity = "High";
+    else if (severityScore > 0.35) severity = "Moderate";
+    else severity = "Low";
+
+    // ── Distance / size / depth estimates ────────────────────────
+    const normalizedY = centerY / height;
+    const distance = estimateDistanceFromPosition(normalizedY, height);
+    const pixelToMeterRatio = 0.01 * (1 + normalizedY * 2);
+    const estimatedSize = area * pixelToMeterRatio * pixelToMeterRatio;
+    const estimatedDepth = contrastScore * edgeRingScore * 18;
+
+    // ── Pothole type ─────────────────────────────────────────────
+    let potholeType: PotholeDetection["potholeType"];
+    if (isWaterFilled) {
+      potholeType = "complex"; // water-filled
+    } else if (edgeRingScore > 0.6 && contrastScore > 0.5) {
+      potholeType = "deep";
+    } else if (aspectRatio > 1.5 || aspectRatio < 0.67) {
+      potholeType = "edge"; // oval/elongated
+    } else if (area > 400) {
+      potholeType = "rough_size";
+    } else if (edgeRingScore > 0.4) {
+      potholeType = "surface_cracks";
+    } else {
+      potholeType = "unknown";
     }
+
+    candidates.push({
+      id: `pothole_${Date.now()}_${index}`,
+      position: { x: centerX, y: centerY },
+      boundingBox: { x: minX, y: minY, width: boxWidth, height: boxHeight },
+      distance,
+      severity,
+      size: estimatedSize,
+      depth: estimatedDepth,
+      confidenceLevel: confidence,
+      potholeType,
+    });
   });
 
-  return potholes;
+  // ── Non-Maximum Suppression ───────────────────────────────────────
+  return applyPotholeNMS(candidates, 0.5);
 }
 
 /**
- * Estimate distance in meters based on vertical position in frame
- * Uses perspective projection approximation
+ * Apply Non-Maximum Suppression to pothole candidates
+ * Removes overlapping boxes, keeping highest-confidence one
  */
-function estimateDistanceFromPosition(
-  normalizedY: number,
-  imageHeight: number,
-): number {
-  // Camera parameters (approximate)
-  const cameraHeight = 1.5; // meters
-  const cameraAngle = 10; // degrees downward tilt
-  const focalLength = imageHeight / (2 * Math.tan((60 * Math.PI) / 360)); // Assume 60° FOV
+function applyPotholeNMS(
+  detections: PotholeDetection[],
+  iouThreshold: number,
+): PotholeDetection[] {
+  if (detections.length === 0) return [];
 
-  // Calculate distance using perspective projection
-  // For objects on the road plane
-  const angleRad = (cameraAngle * Math.PI) / 180;
-  const pixelFromHorizon = (normalizedY - 0.3) * imageHeight; // Assume horizon at ~30% from top
+  // Sort by confidence descending
+  const sorted = [...detections].sort(
+    (a, b) => b.confidenceLevel - a.confidenceLevel,
+  );
+  const kept: PotholeDetection[] = [];
 
-  if (pixelFromHorizon <= 0) return 100; // Far distance
+  for (const det of sorted) {
+    let suppressed = false;
+    for (const kep of kept) {
+      const iou = computeIoU(det.boundingBox, kep.boundingBox);
+      if (iou > iouThreshold) {
+        suppressed = true;
+        break;
+      }
+    }
+    if (!suppressed) kept.push(det);
+  }
 
-  const distance =
-    (cameraHeight * focalLength) / (pixelFromHorizon * Math.cos(angleRad));
-
-  // Clamp to reasonable range
-  return Math.max(1, Math.min(100, distance));
+  return kept;
 }
 
 /**
- * Detect edges using Sobel operator
+ * Compute Intersection over Union (IoU) of two bounding boxes
+ */
+function computeIoU(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): number {
+  const ax2 = a.x + a.width;
+  const ay2 = a.y + a.height;
+  const bx2 = b.x + b.width;
+  const by2 = b.y + b.height;
+
+  const ix1 = Math.max(a.x, b.x);
+  const iy1 = Math.max(a.y, b.y);
+  const ix2 = Math.min(ax2, bx2);
+  const iy2 = Math.min(ay2, by2);
+
+  if (ix2 <= ix1 || iy2 <= iy1) return 0;
+  const intersection = (ix2 - ix1) * (iy2 - iy1);
+  const union = a.width * a.height + b.width * b.height - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+/**
+ * Compute Sobel edge map from image data
  */
 function detectEdges(
   data: Uint8ClampedArray,
@@ -254,8 +420,6 @@ function detectEdges(
   height: number,
 ): Uint8Array {
   const edges = new Uint8Array(width * height);
-
-  // Sobel kernels
   const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
   const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
 
@@ -263,56 +427,93 @@ function detectEdges(
     for (let x = 1; x < width - 1; x++) {
       let gx = 0;
       let gy = 0;
-
       for (let ky = -1; ky <= 1; ky++) {
         for (let kx = -1; kx <= 1; kx++) {
           const idx = ((y + ky) * width + (x + kx)) * 4;
           const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-          const kernelIdx = (ky + 1) * 3 + (kx + 1);
-
-          gx += gray * sobelX[kernelIdx];
-          gy += gray * sobelY[kernelIdx];
+          const ki = (ky + 1) * 3 + (kx + 1);
+          gx += gray * sobelX[ki];
+          gy += gray * sobelY[ki];
         }
       }
-
-      const magnitude = Math.sqrt(gx * gx + gy * gy);
-      edges[y * width + x] = Math.min(255, magnitude);
+      edges[y * width + x] = Math.min(255, Math.sqrt(gx * gx + gy * gy));
     }
   }
-
   return edges;
 }
 
 /**
- * Detect dark regions on road surface
+ * Detect anomalous regions on road surface:
+ * - "dark": dry potholes (brightness < threshold relative to local mean)
+ * - "reflective": water-filled potholes (high local variance, blue-ish or very bright patches)
  */
-function detectDarkRegions(
+function detectAnomalousRegions(
   data: Uint8ClampedArray,
   width: number,
   height: number,
   roadMask: Uint8Array,
-): Array<{ pixels: Array<[number, number]> }> {
+  type: "dark" | "reflective",
+): Array<{ pixels: Array<[number, number]>; type: "dark" | "reflective" }> {
   const visited = new Uint8Array(width * height);
-  const regions: Array<{ pixels: Array<[number, number]> }> = [];
+  const regions: Array<{
+    pixels: Array<[number, number]>;
+    type: "dark" | "reflective";
+  }> = [];
 
-  // Threshold for dark pixels
-  const darknessThreshold = 60; // was 80 — 80 catches normal road shadows
+  // Only scan lower 65% of image (road is in lower portion)
+  const startY = Math.floor(height * 0.35);
 
-  for (let y = Math.floor(height * 0.4); y < height; y++) {
+  // Compute local road brightness mean for adaptive thresholding
+  let roadBrightnessSum = 0;
+  let roadPixelCount = 0;
+  for (let y = startY; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
+      if (roadMask[idx] === 0) continue;
+      const pid = idx * 4;
+      roadBrightnessSum += (data[pid] + data[pid + 1] + data[pid + 2]) / 3;
+      roadPixelCount++;
+    }
+  }
+  const roadMeanBrightness =
+    roadPixelCount > 0 ? roadBrightnessSum / roadPixelCount : 128;
 
-      // Skip if not on road or already visited
+  for (let y = startY; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
       if (roadMask[idx] === 0 || visited[idx] === 1) continue;
 
-      const pixelIdx = idx * 4;
-      const brightness =
-        (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
+      const pid = idx * 4;
+      const r = data[pid];
+      const g = data[pid + 1];
+      const b = data[pid + 2];
+      const brightness = (r + g + b) / 3;
 
-      // Check if pixel is dark
-      if (brightness < darknessThreshold) {
-        // Flood fill to find connected region
-        const region = floodFill(
+      let isCandidate = false;
+
+      if (type === "dark") {
+        // Dry pothole: significantly darker than road mean
+        // Also allows moderately dark pixels to catch partial potholes
+        const darkThreshold = Math.max(40, roadMeanBrightness * 0.55);
+        isCandidate = brightness < darkThreshold;
+      } else {
+        // Water-filled pothole: either very bright (reflection) or blue-dominant
+        // relative to surrounding road - but NOT simply white sky reflections
+        const highBright =
+          brightness > Math.min(220, roadMeanBrightness * 1.45);
+        const blueShift = b > r + 12 && b > g + 8 && brightness > 60;
+        // High local variance patch: rippled water surface
+        const localVar = computeLocalVariance(data, width, height, x, y, 5);
+        const highVariance =
+          localVar > 350 && brightness > 70 && brightness < 220;
+        isCandidate =
+          (highBright || blueShift || highVariance) &&
+          // Avoid large uniform bright regions (sky, white vehicles)
+          localVar > 80;
+      }
+
+      if (isCandidate) {
+        const region = floodFillAnomalous(
           data,
           width,
           height,
@@ -320,11 +521,11 @@ function detectDarkRegions(
           y,
           visited,
           roadMask,
-          darknessThreshold,
+          type,
+          roadMeanBrightness,
         );
-
-        if (region.pixels.length > 0) {
-          regions.push(region);
+        if (region.pixels.length >= 80) {
+          regions.push({ pixels: region.pixels, type });
         }
       }
     }
@@ -334,9 +535,40 @@ function detectDarkRegions(
 }
 
 /**
- * Flood fill algorithm to find connected dark regions
+ * Compute local brightness variance in a window around (cx, cy)
  */
-function floodFill(
+function computeLocalVariance(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  cx: number,
+  cy: number,
+  radius: number,
+): number {
+  let sum = 0;
+  let sumSq = 0;
+  let count = 0;
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const pid = (ny * width + nx) * 4;
+      const bright = (data[pid] + data[pid + 1] + data[pid + 2]) / 3;
+      sum += bright;
+      sumSq += bright * bright;
+      count++;
+    }
+  }
+  if (count === 0) return 0;
+  const mean = sum / count;
+  return sumSq / count - mean * mean;
+}
+
+/**
+ * Flood fill for anomalous region detection
+ */
+function floodFillAnomalous(
   data: Uint8ClampedArray,
   width: number,
   height: number,
@@ -344,41 +576,70 @@ function floodFill(
   startY: number,
   visited: Uint8Array,
   roadMask: Uint8Array,
-  threshold: number,
+  type: "dark" | "reflective",
+  roadMeanBrightness: number,
 ): { pixels: Array<[number, number]> } {
   const pixels: Array<[number, number]> = [];
   const stack: Array<[number, number]> = [[startX, startY]];
+  const maxPixels = 2000; // cap region size
 
-  while (stack.length > 0 && pixels.length < 1000) {
-    const [x, y] = stack.pop()!;
+  const darkThreshold = Math.max(40, roadMeanBrightness * 0.55);
+  const brightThreshold = Math.min(220, roadMeanBrightness * 1.45);
+
+  while (stack.length > 0 && pixels.length < maxPixels) {
+    const item = stack.pop()!;
+    const x = item[0];
+    const y = item[1];
 
     if (x < 0 || x >= width || y < 0 || y >= height) continue;
-
     const idx = y * width + x;
-
     if (visited[idx] === 1 || roadMask[idx] === 0) continue;
 
-    const pixelIdx = idx * 4;
-    const brightness =
-      (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
+    const pid = idx * 4;
+    const r = data[pid];
+    const g = data[pid + 1];
+    const b = data[pid + 2];
+    const brightness = (r + g + b) / 3;
 
-    if (brightness >= threshold) continue;
+    let matches = false;
+    if (type === "dark") {
+      matches = brightness < darkThreshold * 1.1; // slight tolerance for fill
+    } else {
+      const highBright = brightness > brightThreshold * 0.92;
+      const blueShift = b > r + 10 && b > g + 6;
+      const highVar = computeLocalVariance(data, width, height, x, y, 3) > 200;
+      matches = highBright || blueShift || highVar;
+    }
+
+    if (!matches) continue;
 
     visited[idx] = 1;
     pixels.push([x, y]);
 
-    // Add neighbors
-    stack.push([x + 1, y]);
-    stack.push([x - 1, y]);
-    stack.push([x, y + 1]);
-    stack.push([x, y - 1]);
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
   }
 
   return { pixels };
 }
 
 /**
+ * Estimate distance in meters based on vertical position in frame
+ */
+function estimateDistanceFromPosition(
+  normalizedY: number,
+  _height: number,
+): number {
+  // Perspective: objects higher in frame are farther away
+  // Assume camera ~1.5m height, field of view ~60 degrees
+  if (normalizedY <= 0.5) return 50; // very far
+  const relativeY = (normalizedY - 0.5) * 2; // 0 = horizon, 1 = bottom of frame
+  const distance = Math.max(1, 40 * (1 - relativeY) + 2);
+  return distance;
+}
+
+/**
  * Create visualization overlay for detected potholes
+ * Each pothole gets a clear bounding box with label: "Pothole (Confidence%)"
  */
 function createPotholeVisualization(
   img: HTMLImageElement,
@@ -391,21 +652,27 @@ function createPotholeVisualization(
   canvas.height = height;
   const ctx = canvas.getContext("2d")!;
 
-  // Draw original image
   ctx.drawImage(img, 0, 0, width, height);
 
-  // Draw pothole bounding boxes and labels
   for (const pothole of potholes) {
-    const { boundingBox, severity, distance } = pothole;
+    const { boundingBox, severity, confidenceLevel } = pothole;
 
     // Color based on severity
-    let color: string;
-    if (severity === "High") color = "rgba(255, 0, 0, 0.7)";
-    else if (severity === "Moderate") color = "rgba(255, 165, 0, 0.7)";
-    else color = "rgba(255, 255, 0, 0.7)";
+    let boxColor: string;
+    let bgColor: string;
+    if (severity === "High") {
+      boxColor = "rgba(255, 30, 30, 0.95)";
+      bgColor = "rgba(220, 0, 0, 0.85)";
+    } else if (severity === "Moderate") {
+      boxColor = "rgba(255, 140, 0, 0.95)";
+      bgColor = "rgba(200, 100, 0, 0.85)";
+    } else {
+      boxColor = "rgba(255, 220, 0, 0.95)";
+      bgColor = "rgba(180, 150, 0, 0.85)";
+    }
 
-    // Draw bounding box
-    ctx.strokeStyle = color;
+    // Draw bounding box with thick border
+    ctx.strokeStyle = boxColor;
     ctx.lineWidth = 3;
     ctx.strokeRect(
       boundingBox.x,
@@ -414,26 +681,61 @@ function createPotholeVisualization(
       boundingBox.height,
     );
 
-    // Draw label background
-    const label = `Pothole ${distance.toFixed(0)}m`;
-    ctx.font = "bold 14px Arial";
-    const textWidth = ctx.measureText(label).width;
-
-    ctx.fillStyle = color;
-    ctx.fillRect(boundingBox.x, boundingBox.y - 22, textWidth + 10, 22);
-
-    // Draw label text
-    ctx.fillStyle = "white";
-    ctx.fillText(label, boundingBox.x + 5, boundingBox.y - 6);
-
-    // Draw distance indicator
-    ctx.fillStyle = color;
+    // Draw corner accents for clarity
+    const cs = Math.min(
+      16,
+      Math.floor(Math.min(boundingBox.width, boundingBox.height) * 0.25),
+    );
+    ctx.lineWidth = 4;
+    const bx = boundingBox.x;
+    const by = boundingBox.y;
+    const bw = boundingBox.width;
+    const bh = boundingBox.height;
+    // Top-left
     ctx.beginPath();
-    ctx.arc(pothole.position.x, pothole.position.y, 5, 0, 2 * Math.PI);
-    ctx.fill();
+    ctx.moveTo(bx, by + cs);
+    ctx.lineTo(bx, by);
+    ctx.lineTo(bx + cs, by);
+    ctx.stroke();
+    // Top-right
+    ctx.beginPath();
+    ctx.moveTo(bx + bw - cs, by);
+    ctx.lineTo(bx + bw, by);
+    ctx.lineTo(bx + bw, by + cs);
+    ctx.stroke();
+    // Bottom-left
+    ctx.beginPath();
+    ctx.moveTo(bx, by + bh - cs);
+    ctx.lineTo(bx, by + bh);
+    ctx.lineTo(bx + cs, by + bh);
+    ctx.stroke();
+    // Bottom-right
+    ctx.beginPath();
+    ctx.moveTo(bx + bw - cs, by + bh);
+    ctx.lineTo(bx + bw, by + bh);
+    ctx.lineTo(bx + bw, by + bh - cs);
+    ctx.stroke();
+
+    // Label: "Pothole (Confidence%)"
+    const label = `Pothole (${Math.round(confidenceLevel * 100)}%)`;
+    ctx.font = "bold 14px Arial, sans-serif";
+    const textWidth = ctx.measureText(label).width;
+    const labelX = boundingBox.x;
+    const labelY =
+      boundingBox.y > 26
+        ? boundingBox.y - 4
+        : boundingBox.y + boundingBox.height + 22;
+
+    // Label background
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(labelX, labelY - 18, textWidth + 12, 22);
+
+    // Label text
+    ctx.fillStyle = "white";
+    ctx.fillText(label, labelX + 6, labelY - 1);
   }
 
-  return canvas.toDataURL("image/jpeg", 0.9);
+  return canvas.toDataURL("image/jpeg", 0.92);
 }
 
 export async function processRoadDetection(
@@ -532,7 +834,7 @@ export async function processRoadDetection(
     environmentalConditions.weather === "Foggy" ||
     environmentalConditions.weather === "Heavy Fog" ||
     (environmentalConditions.fogLikelihood !== undefined &&
-      environmentalConditions.fogLikelihood > 0.4);
+      environmentalConditions.fogLikelihood >= 0.7);
   const potholes = isFogCondition
     ? []
     : detectPotholes(
@@ -876,9 +1178,18 @@ function analyzeEnvironment(
   // Determine weather with improved fog detection
   // Fog: image looks washed out — high gray ratio AND mid-high brightness (not dark)
   let weather: string;
-  const isFoggy = grayRatio > 0.25 && avgBrightness > 90 && avgBrightness < 230;
+  // Fog requires: very high gray ratio (>0.60), mid-brightness (not dark night, not blown out),
+  // AND low color saturation throughout — avoids false positives on overcast/cloudy roads
+  const isFoggy =
+    grayRatio > 0.6 &&
+    avgBrightness > 110 &&
+    avgBrightness < 200 &&
+    whiteRatio < 0.25;
   const isHeavyFog =
-    grayRatio > 0.45 && avgBrightness > 100 && avgBrightness < 230;
+    grayRatio > 0.72 &&
+    avgBrightness > 115 &&
+    avgBrightness < 195 &&
+    whiteRatio < 0.2;
   if (isHeavyFog) weather = "Heavy Fog";
   else if (isFoggy) weather = "Foggy";
   else if (avgBlue > 140 && avgBrightness > 150) weather = "Clear";
@@ -898,11 +1209,10 @@ function analyzeEnvironment(
   else if (avgBrightness < 70) visibility = 0.6; // Low light reduces visibility
   visibility = Math.max(0.1, Math.min(1.0, visibility));
 
-  // Fog likelihood (0-1) — boosted sensitivity
-  const fogLikelihood = Math.min(
-    1.0,
-    isFoggy ? grayRatio * 3.0 : grayRatio * 1.5,
-  );
+  // Fog likelihood: only meaningful if actually foggy, no inflation multiplier
+  const fogLikelihood = isFoggy
+    ? Math.min(1.0, ((grayRatio - 0.6) / 0.4) * 0.8 + 0.5) // maps 0.60–1.0 gray -> 0.50–0.90 likelihood
+    : Math.min(0.35, grayRatio * 0.5); // non-foggy: capped at 0.35 so never triggers UI fog warning
 
   // Precipitation likelihood (0-1)
   let precipitationLikelihood = 0;

@@ -376,7 +376,10 @@ async function computeDamageDetection(
 }
 
 /**
- * Detect wet or slippery surfaces using reflectance and color analysis
+ * Detect wet or slippery surfaces using multi-cue analysis.
+ * Confidence threshold: 0.7 — only reports wet if score >= 0.7.
+ * Detects: rain streaks, water puddles, oil spills, wet road reflections.
+ * Prevents false positives from dry asphalt, shadows, and normal road texture.
  */
 async function computeWetSurfaceDetection(
   data: Uint8ClampedArray,
@@ -385,15 +388,22 @@ async function computeWetSurfaceDetection(
   height: number,
   conditions: { lighting: string; weather: string },
 ): Promise<RoadSurfaceFeatures["wetSurface"]> {
-  let wetnessScore = 0;
-  let slipperinessScore = 0;
+  const WET_THRESHOLD = 0.7;
+
+  // --- Scan road pixels in lower 60% for wetness cues ---
+  const scanStartY = Math.floor(height * 0.4);
 
   let roadPixels = 0;
-  let highReflectancePixels = 0;
-  let blueShiftPixels = 0;
-  let darkWetPixels = 0;
+  let puddlePixels = 0; // medium brightness + blue dominant
+  let oilPixels = 0; // rainbow sheen: high saturation, no single extreme channel
+  let reflectionPixels = 0; // bright spot surrounded by dark road
+  let dryGrayPixels = 0; // all channels close + mid brightness + low saturation
 
-  for (let y = 0; y < height; y++) {
+  // Collect brightness values for surrounding context (specular highlight check)
+  // We'll use a sampling approach: for each bright pixel, check its neighborhood
+  const neighborRadius = 12;
+
+  for (let y = scanStartY; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
       if (roadMask[idx] === 0) continue;
@@ -403,44 +413,197 @@ async function computeWetSurfaceDetection(
       const r = data[pixelIdx];
       const g = data[pixelIdx + 1];
       const b = data[pixelIdx + 2];
-
       const brightness = (r + g + b) / 3;
+      const maxCh = Math.max(r, g, b);
+      const minCh = Math.min(r, g, b);
+      const saturation = maxCh > 0 ? (maxCh - minCh) / maxCh : 0;
 
-      // High reflectance (specular highlights from water)
-      if (brightness > 200 && Math.abs(r - g) < 20 && Math.abs(g - b) < 20) {
-        highReflectancePixels++;
+      // --- Dry road check ---
+      // Mid-gray, all channels close, low saturation
+      const channelSpread = Math.max(
+        Math.abs(r - g),
+        Math.abs(g - b),
+        Math.abs(r - b),
+      );
+      if (
+        brightness >= 80 &&
+        brightness <= 160 &&
+        channelSpread <= 15 &&
+        saturation < 0.12
+      ) {
+        dryGrayPixels++;
       }
 
-      // Blue shift (water has higher blue component)
-      if (b > r + 10 && b > g + 10) {
-        blueShiftPixels++;
+      // --- Water puddle ---
+      // Medium brightness (120-190), blue channel dominant over red by 15+, over green by 5+
+      if (brightness >= 120 && brightness <= 190 && b > r + 15 && b > g + 5) {
+        puddlePixels++;
       }
 
-      // Dark wet patches
-      if (brightness < 70 && Math.abs(r - g) < 15 && Math.abs(g - b) < 15) {
-        darkWetPixels++;
+      // --- Oil spill (rainbow sheen) ---
+      // High saturation (>0.35), no single channel at extreme values (not pure red/green/blue),
+      // hue variance between channels indicates sheen
+      if (saturation > 0.35) {
+        // Exclude pixels that are mostly one pure channel (traffic signs, markings)
+        const dominated = maxCh > 200 && minCh < 40;
+        if (!dominated) {
+          // Check that we have variance between channels (rainbow sheen)
+          const variance =
+            ((r - brightness) ** 2 +
+              (g - brightness) ** 2 +
+              (b - brightness) ** 2) /
+            3;
+          if (variance > 300) {
+            oilPixels++;
+          }
+        }
+      }
+
+      // --- Wet road reflections (specular highlights on dark road) ---
+      // Bright pixel (>200) surrounded by dark road (avg neighborhood < 90)
+      if (brightness > 200) {
+        let neighborSum = 0;
+        let neighborCount = 0;
+        const ny1 = Math.max(0, y - neighborRadius);
+        const ny2 = Math.min(height - 1, y + neighborRadius);
+        const nx1 = Math.max(0, x - neighborRadius);
+        const nx2 = Math.min(width - 1, x + neighborRadius);
+
+        // Sample every 3rd pixel for performance
+        for (let ny = ny1; ny <= ny2; ny += 3) {
+          for (let nx = nx1; nx <= nx2; nx += 3) {
+            if (ny === y && nx === x) continue;
+            const nIdx = ny * width + nx;
+            if (roadMask[nIdx] === 0) continue;
+            const nPix = nIdx * 4;
+            const nb = (data[nPix] + data[nPix + 1] + data[nPix + 2]) / 3;
+            neighborSum += nb;
+            neighborCount++;
+          }
+        }
+
+        if (neighborCount > 0) {
+          const avgNeighborBrightness = neighborSum / neighborCount;
+          // Specular highlight surrounded by dark road = wet reflection
+          if (avgNeighborBrightness < 90) {
+            reflectionPixels++;
+          }
+        }
       }
     }
   }
 
-  if (roadPixels > 0) {
-    const reflectanceRatio = highReflectancePixels / roadPixels;
-    const blueShiftRatio = blueShiftPixels / roadPixels;
-    const darkWetRatio = darkWetPixels / roadPixels;
+  // --- Rain streak detection ---
+  // Scan vertical strips for alternating bright/dark patterns (vertical lines)
+  let rainScore = 0;
+  const stripWidth = 4;
+  const minStreakLength = Math.floor(height * 0.15);
+  let streakStrips = 0;
+  let totalStrips = 0;
 
-    // Wetness score based on reflectance and color
-    wetnessScore = Math.min(
-      1,
-      (reflectanceRatio * 2 + blueShiftRatio + darkWetRatio) / 3,
-    );
+  for (let x = stripWidth; x < width - stripWidth; x += stripWidth * 2) {
+    totalStrips++;
+    let transitions = 0;
+    let prevBright = -1;
 
-    // Slipperiness correlates with wetness and weather
-    slipperinessScore = wetnessScore;
-    if (conditions.weather.includes("Rain")) {
-      slipperinessScore = Math.min(1, slipperinessScore * 1.3);
+    for (let y = 0; y < height; y++) {
+      const idx = y * width + x;
+      const pixelIdx = idx * 4;
+      const brightness =
+        (data[pixelIdx] + data[pixelIdx + 1] + data[pixelIdx + 2]) / 3;
+      const isBright = brightness > 140 ? 1 : 0;
+
+      if (prevBright !== -1 && isBright !== prevBright) {
+        transitions++;
+      }
+      prevBright = isBright;
     }
-    if (conditions.weather.includes("Fog")) {
-      slipperinessScore = Math.min(1, slipperinessScore * 1.1);
+
+    // Many transitions in a narrow vertical strip suggests rain streaks
+    const transitionDensity = transitions / height;
+    if (transitions >= minStreakLength / 2 && transitionDensity > 0.3) {
+      streakStrips++;
+    }
+  }
+
+  if (totalStrips > 0) {
+    rainScore = Math.min(1, (streakStrips / totalStrips) * 2.5);
+    // Only count rain streaks if a meaningful portion of strips are streaky
+    if (streakStrips / totalStrips < 0.35) rainScore = 0;
+  }
+
+  // --- Dry road confidence ---
+  const dryRoadConfidence =
+    roadPixels > 0 ? Math.min(1, (dryGrayPixels / roadPixels) * 2) : 0;
+
+  // --- Score calculation ---
+  let puddleScore = 0;
+  let oilScore = 0;
+  let reflectionScore = 0;
+
+  if (roadPixels > 0) {
+    puddleScore = Math.min(1, (puddlePixels / roadPixels) * 8);
+    oilScore = Math.min(1, (oilPixels / roadPixels) * 12);
+    reflectionScore = Math.min(1, (reflectionPixels / roadPixels) * 20);
+  }
+
+  // Minimum pixel count guards — avoid noise on tiny images
+  if (puddlePixels < 50) puddleScore = 0;
+  if (oilPixels < 30) oilScore = 0;
+  if (reflectionPixels < 10) reflectionScore = 0;
+
+  let wetnessScore =
+    rainScore * 0.35 +
+    puddleScore * 0.35 +
+    oilScore * 0.2 +
+    reflectionScore * 0.1;
+
+  // Apply dry road penalty
+  if (dryRoadConfidence > 0.7) {
+    wetnessScore *= 0.2;
+  }
+
+  // Weather boost only if strong enough signal already present
+  if (wetnessScore > 0.4 && conditions.weather.includes("Rain")) {
+    wetnessScore = Math.min(1, wetnessScore * 1.2);
+  }
+
+  // Enforce threshold — below 0.7 means not wet
+  if (wetnessScore < WET_THRESHOLD) {
+    wetnessScore = 0;
+  }
+
+  const slipperinessScore = wetnessScore;
+
+  // Find bounding box of wet area pixels for visualization
+  let wetMinX = width;
+  let wetMinY = height;
+  let wetMaxX = 0;
+  let wetMaxY = 0;
+  let wetAreaPixelCount = 0;
+
+  if (wetnessScore >= WET_THRESHOLD) {
+    for (let y = scanStartY; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        if (roadMask[idx] === 0) continue;
+        const pixelIdx = idx * 4;
+        const r = data[pixelIdx];
+        const g = data[pixelIdx + 1];
+        const b = data[pixelIdx + 2];
+        const brightness = (r + g + b) / 3;
+        // Mark pixels contributing to wetness signal
+        const isWetPixel =
+          (brightness >= 120 && brightness <= 190 && b > r + 15 && b > g + 5) || // puddle
+          brightness > 200; // specular
+        if (isWetPixel) {
+          wetMinX = Math.min(wetMinX, x);
+          wetMinY = Math.min(wetMinY, y);
+          wetMaxX = Math.max(wetMaxX, x);
+          wetMaxY = Math.max(wetMaxY, y);
+          wetAreaPixelCount++;
+        }
+      }
     }
   }
 
@@ -450,6 +613,9 @@ async function computeWetSurfaceDetection(
     width,
     height,
     wetnessScore,
+    wetAreaPixelCount > 20
+      ? { minX: wetMinX, minY: wetMinY, maxX: wetMaxX, maxY: wetMaxY }
+      : null,
   );
 
   return { wetnessScore, slipperinessScore, visualizationUrl };
@@ -631,7 +797,9 @@ async function createDamageVisualization(
 }
 
 /**
- * Create wet surface visualization
+ * Create wet surface visualization.
+ * Returns null if no wet area detected (score = 0).
+ * When wet area IS detected, draws a blue dashed bounding box around the wet region.
  */
 async function createWetSurfaceVisualization(
   data: Uint8ClampedArray,
@@ -639,7 +807,11 @@ async function createWetSurfaceVisualization(
   width: number,
   height: number,
   wetnessScore: number,
+  wetBbox: { minX: number; minY: number; maxX: number; maxY: number } | null,
 ): Promise<string | null> {
+  // If no wetness detected, return null — no visualization needed
+  if (wetnessScore === 0 || wetBbox === null) return null;
+
   try {
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -647,36 +819,58 @@ async function createWetSurfaceVisualization(
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
+    // Draw the original pixel data as base
     const imageData = ctx.createImageData(width, height);
-    const overlayData = imageData.data;
+    for (let i = 0; i < roadMask.length; i++) {
+      const idx = i * 4;
+      imageData.data[idx] = data[idx];
+      imageData.data[idx + 1] = data[idx + 1];
+      imageData.data[idx + 2] = data[idx + 2];
+      imageData.data[idx + 3] = roadMask[i] > 0 ? 200 : 0;
+    }
+    ctx.putImageData(imageData, 0, 0);
 
+    // Draw blue tint overlay on road area
     for (let i = 0; i < roadMask.length; i++) {
       const idx = i * 4;
       if (roadMask[i] > 0) {
-        const pixelIdx = i * 4;
-        const r = data[pixelIdx];
-        const g = data[pixelIdx + 1];
-        const b = data[pixelIdx + 2];
-        const brightness = (r + g + b) / 3;
-
-        // Highlight wet areas with blue tint
-        const isWet =
-          brightness > 200 || (b > r + 10 && b > g + 10) || brightness < 70;
-
-        if (isWet) {
-          overlayData[idx] = 50;
-          overlayData[idx + 1] = 150;
-          overlayData[idx + 2] = 255;
-          overlayData[idx + 3] = Math.floor(100 + wetnessScore * 80);
-        } else {
-          overlayData[idx + 3] = 0;
-        }
-      } else {
-        overlayData[idx + 3] = 0;
+        imageData.data[idx] = Math.min(255, data[idx] * 0.5 + 25);
+        imageData.data[idx + 1] = Math.min(255, data[idx + 1] * 0.5 + 75);
+        imageData.data[idx + 2] = Math.min(255, data[idx + 2] * 0.5 + 128);
+        imageData.data[idx + 3] = 180;
       }
     }
-
     ctx.putImageData(imageData, 0, 0);
+
+    // Draw bounding box around detected wet area
+    const pad = 8;
+    const bx = Math.max(0, wetBbox.minX - pad);
+    const by = Math.max(0, wetBbox.minY - pad);
+    const bw = Math.min(width, wetBbox.maxX + pad) - bx;
+    const bh = Math.min(height, wetBbox.maxY + pad) - by;
+
+    // Dashed blue bounding box
+    ctx.strokeStyle = "rgba(50, 150, 255, 0.9)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]);
+    ctx.strokeRect(bx, by, bw, bh);
+    ctx.setLineDash([]);
+
+    // Label above the bounding box
+    const labelText = "Wet Area";
+    ctx.font = "bold 14px sans-serif";
+    const textWidth = ctx.measureText(labelText).width;
+    const labelX = bx;
+    const labelY = Math.max(20, by - 6);
+
+    // Label background
+    ctx.fillStyle = "rgba(50, 150, 255, 0.85)";
+    ctx.fillRect(labelX - 2, labelY - 16, textWidth + 10, 20);
+
+    // Label text
+    ctx.fillStyle = "white";
+    ctx.fillText(labelText, labelX + 3, labelY - 1);
+
     return canvas.toDataURL("image/png");
   } catch (error) {
     console.error("[Visualization] Wet surface failed:", error);
