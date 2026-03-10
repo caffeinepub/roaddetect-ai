@@ -104,7 +104,7 @@ function mergeGroup(group: MotionDetection[]): MotionDetection {
 
 function mergeByProximity(
   dets: MotionDetection[],
-  gap = 80,
+  gap = 30,
 ): MotionDetection[] {
   const n = dets.length;
   if (n === 0) return [];
@@ -384,10 +384,10 @@ export function detectMovingObjects(
     }
   }
 
-  const movingMerged = mergeByProximity(applyNMS(rawMoving)).slice(0, 6);
-  const stationaryMerged = mergeByProximity(applyNMS(rawStationary)).slice(
+  const movingMerged = mergeByProximity(applyNMS(rawMoving), 30).slice(0, 15);
+  const stationaryMerged = mergeByProximity(applyNMS(rawStationary), 30).slice(
     0,
-    5,
+    10,
   );
 
   const fix = (d: MotionDetection): MotionDetection => {
@@ -433,11 +433,11 @@ export function drawDetectionsOnCanvas(
     let distColor: string;
 
     if (det.motion === "Moving" && isClose) {
-      strokeColor = "rgba(239, 68, 68, 0.95)";
+      strokeColor = "rgba(255, 50, 50, 1.0)";
       labelBg = "rgba(185, 28, 28, 0.92)";
       distColor = "#fde68a";
     } else if (det.motion === "Moving") {
-      strokeColor = "rgba(249, 115, 22, 0.9)";
+      strokeColor = "rgba(255, 140, 0, 1.0)";
       labelBg = "rgba(194, 65, 12, 0.90)";
       distColor = "#fed7aa";
     } else if (isClose) {
@@ -451,12 +451,12 @@ export function drawDetectionsOnCanvas(
     }
 
     // Draw box
-    const lineW = Math.max(2, Math.floor(width * 0.005));
+    const lineW = Math.max(3, Math.floor(width * 0.007));
     ctx.save();
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = lineW;
     ctx.shadowColor = strokeColor;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 14;
     if (det.motion === "Stationary") ctx.setLineDash([8, 4]);
     ctx.strokeRect(x, y, bw, bh);
     ctx.shadowBlur = 0;

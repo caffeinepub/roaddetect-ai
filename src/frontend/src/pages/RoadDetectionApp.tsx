@@ -41,6 +41,7 @@ export default function RoadDetectionApp() {
             <TabsList className="mx-auto grid h-12 w-full max-w-3xl grid-cols-3 rounded-2xl surface-primary p-1 shadow-lg">
               <TabsTrigger
                 value="camera"
+                data-ocid="camera.tab"
                 className="rounded-xl transition-all duration-200 border border-transparent data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary/60 motion-safe:data-[state=active]:shadow-glow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <Camera className="mr-2 h-4 w-4" />
@@ -48,6 +49,7 @@ export default function RoadDetectionApp() {
               </TabsTrigger>
               <TabsTrigger
                 value="upload"
+                data-ocid="upload.tab"
                 className="rounded-xl transition-all duration-200 border border-transparent data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary/60 motion-safe:data-[state=active]:shadow-glow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <Upload className="mr-2 h-4 w-4" />
@@ -55,6 +57,7 @@ export default function RoadDetectionApp() {
               </TabsTrigger>
               <TabsTrigger
                 value="accidents"
+                data-ocid="accidents.tab"
                 className="rounded-xl transition-all duration-200 border border-transparent data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary/60 motion-safe:data-[state=active]:shadow-glow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <AlertTriangle className="mr-2 h-4 w-4" />

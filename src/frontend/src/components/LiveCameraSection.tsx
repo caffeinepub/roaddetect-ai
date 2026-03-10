@@ -136,6 +136,10 @@ export default function LiveCameraSection({
   });
   const [errorDetails, setErrorDetails] = useState<string>("");
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Offscreen canvas for clean pixel capture (no overlay contamination)
+  const offscreenCanvasRef = useRef<HTMLCanvasElement>(
+    document.createElement("canvas"),
+  );
   const animationFrameRef = useRef<number | undefined>(undefined);
   const frameCountRef = useRef<number>(0);
   const performanceMetricsRef = useRef({ avgFrameTime: 0, frameCount: 0 });
@@ -290,7 +294,6 @@ export default function LiveCameraSection({
     const ctx = canvas.getContext("2d", {
       alpha: false,
       desynchronized: true,
-      willReadFrequently: true,
     }) as CanvasRenderingContext2D | null;
 
     if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) {
@@ -298,7 +301,7 @@ export default function LiveCameraSection({
       return;
     }
 
-    // Resize canvas to video dimensions
+    // Resize overlay canvas to video dimensions
     if (
       canvas.width !== video.videoWidth ||
       canvas.height !== video.videoHeight
@@ -310,9 +313,25 @@ export default function LiveCameraSection({
     const W = canvas.width;
     const H = canvas.height;
 
-    // Draw current frame
-    ctx.drawImage(video, 0, 0, W, H);
-    const currentFrameData = ctx.getImageData(0, 0, W, H)
+    // ── Use offscreen canvas for clean pixel capture ────────────────────────
+    // This prevents the overlay drawings from polluting the frame diff data.
+    const offscreen = offscreenCanvasRef.current;
+    if (offscreen.width !== W || offscreen.height !== H) {
+      offscreen.width = W;
+      offscreen.height = H;
+    }
+    const offCtx = offscreen.getContext("2d", {
+      willReadFrequently: true,
+    }) as CanvasRenderingContext2D | null;
+
+    if (!offCtx) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
+
+    // Draw clean video frame to offscreen canvas
+    offCtx.drawImage(video, 0, 0, W, H);
+    const currentFrameData = offCtx.getImageData(0, 0, W, H)
       .data as Uint8ClampedArray;
 
     fpsCounterRef.current.frames++;
@@ -330,12 +349,12 @@ export default function LiveCameraSection({
         previousFrameDataRef.current,
         W,
         H,
-        22, // diff threshold
-        250, // min blob size
+        15, // diff threshold
+        120, // min blob size
       );
 
       if (motionResult.detections.length > 0) {
-        // Redraw video frame cleanly, then draw overlays
+        // Draw clean video frame to overlay canvas, then draw bounding boxes on top
         ctx.drawImage(video, 0, 0, W, H);
         drawDetectionsOnCanvas(ctx, motionResult.detections, W, H);
         setMotionDetections(motionResult.detections);
@@ -363,11 +382,16 @@ export default function LiveCameraSection({
             ).length,
         }));
       } else {
+        // No detections — still refresh the overlay canvas with the current video frame
+        ctx.drawImage(video, 0, 0, W, H);
         setMotionDetections([]);
       }
+    } else {
+      // First frame or size mismatch — just draw the video so it's not blank
+      ctx.drawImage(video, 0, 0, W, H);
     }
 
-    // Store frame for next diff
+    // Store OFFSCREEN pixel data (clean, no overlays) for next frame comparison
     previousFrameDataRef.current = new Uint8ClampedArray(currentFrameData);
 
     // ── Full road detection (throttled to ~1 FPS) ───────────────────────────
@@ -375,13 +399,8 @@ export default function LiveCameraSection({
     if (timeSinceFullDetection > 1000) {
       lastFullDetectionRef.current = currentTime;
 
-      let dataUrl: string;
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = W;
-      tempCanvas.height = H;
-      const tempCtx = tempCanvas.getContext("2d")!;
-      tempCtx.drawImage(video, 0, 0, W, H);
-      dataUrl = tempCanvas.toDataURL("image/jpeg", 0.65);
+      // Use offscreen canvas for clean snapshot
+      const dataUrl = offscreen.toDataURL("image/jpeg", 0.65);
 
       try {
         const processingStart = performance.now();
@@ -878,6 +897,8 @@ export default function LiveCameraSection({
           )}
 
           {/* Camera Preview */}
+          {/* The overlay canvas always renders the latest video frame (with or without detections). */}
+          {/* The raw video element is hidden since the canvas mirrors it. */}
           <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
             <video
               ref={videoRef}
@@ -885,12 +906,12 @@ export default function LiveCameraSection({
               playsInline
               muted
               className="absolute inset-0 w-full h-full object-cover"
-              style={{ display: isActive ? "block" : "none" }}
+              style={{ display: "none" }}
             />
             <canvas
               ref={overlayCanvasRef}
               className="absolute inset-0 w-full h-full object-cover"
-              style={{ display: isDetecting ? "block" : "none" }}
+              style={{ display: isActive ? "block" : "none" }}
             />
             <canvas ref={canvasRef} className="hidden" />
 
