@@ -66,9 +66,47 @@ function computeIoU(
 }
 
 /**
+ * Check if two boxes are "nearby" using a proximity threshold.
+ */
+function areNearby(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+  proximityFraction = 0.5,
+): boolean {
+  if (computeIoU(a, b) > 0) return true;
+
+  const ax2 = a.x + a.width;
+  const ay2 = a.y + a.height;
+  const bx2 = b.x + b.width;
+  const by2 = b.y + b.height;
+
+  const gapX = Math.max(0, Math.max(a.x, b.x) - Math.min(ax2, bx2));
+  const gapY = Math.max(0, Math.max(a.y, b.y) - Math.min(ay2, by2));
+
+  const diagA = Math.sqrt(a.width * a.width + a.height * a.height);
+  const diagB = Math.sqrt(b.width * b.width + b.height * b.height);
+  const avgDiag = (diagA + diagB) / 2;
+
+  const gap = Math.sqrt(gapX * gapX + gapY * gapY);
+  return gap < avgDiag * proximityFraction;
+}
+
+/**
+ * Merge two bounding boxes into the union bounding box.
+ */
+function mergeBoxes(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): { x: number; y: number; width: number; height: number } {
+  const x1 = Math.min(a.x, b.x);
+  const y1 = Math.min(a.y, b.y);
+  const x2 = Math.max(a.x + a.width, b.x + b.width);
+  const y2 = Math.max(a.y + a.height, b.y + b.height);
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+}
+
+/**
  * Apply Non-Maximum Suppression to remove overlapping bounding boxes.
- * Keeps the highest-confidence box and suppresses any box whose IoU
- * with a kept box exceeds iouThreshold.
  */
 function applyNMS(
   obstacles: ObstacleInfo[],
@@ -76,7 +114,6 @@ function applyNMS(
 ): ObstacleInfo[] {
   if (obstacles.length === 0) return [];
 
-  // Sort by confidence descending
   const sorted = [...obstacles].sort(
     (a, b) => b.confidenceLevel - a.confidenceLevel,
   );
@@ -100,12 +137,81 @@ function applyNMS(
 }
 
 /**
+ * Merge nearby boxes of the same type into a single box.
+ */
+function mergeNearbyBoxes(obstacles: ObstacleInfo[]): ObstacleInfo[] {
+  if (obstacles.length <= 1) return obstacles;
+
+  const n = obstacles.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+
+  function find(startIdx: number): number {
+    let i = startIdx;
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  }
+
+  function union(i: number, j: number) {
+    const ri = find(i);
+    const rj = find(j);
+    if (ri !== rj) parent[ri] = rj;
+  }
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (obstacles[i].type === obstacles[j].type) {
+        if (areNearby(obstacles[i].boundingBox, obstacles[j].boundingBox)) {
+          union(i, j);
+        }
+      }
+    }
+  }
+
+  const clusters = new Map<number, ObstacleInfo[]>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    if (!clusters.has(root)) clusters.set(root, []);
+    clusters.get(root)!.push(obstacles[i]);
+  }
+
+  const merged: ObstacleInfo[] = [];
+  for (const group of clusters.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]);
+      continue;
+    }
+
+    let box = group[0].boundingBox;
+    for (let k = 1; k < group.length; k++) {
+      box = mergeBoxes(box, group[k].boundingBox);
+    }
+
+    const best = group.reduce((a, b) =>
+      a.confidenceLevel >= b.confidenceLevel ? a : b,
+    );
+
+    const centerX = box.x + box.width / 2;
+    const centerY = box.y + box.height / 2;
+
+    merged.push({
+      ...best,
+      id: best.id,
+      position: { x: centerX / box.width, y: centerY / box.height },
+      boundingBox: box,
+    });
+  }
+
+  return merged;
+}
+
+/**
  * Estimate distance in meters from vertical position in image.
- * Objects lower in the image are closer to the camera.
- * Using a perspective heuristic: bottom 30% ~ 0-8m, middle ~ 8-25m, top ~ 25-80m.
  */
 function estimateDistance(boxBottomY: number, imageHeight: number): number {
-  const normalizedY = boxBottomY / imageHeight; // 0 = top, 1 = bottom
+  const normalizedY = boxBottomY / imageHeight;
 
   if (normalizedY >= 0.85) return 2.0;
   if (normalizedY >= 0.75) return 4.0;
@@ -117,6 +223,141 @@ function estimateDistance(boxBottomY: number, imageHeight: number): number {
   return 60.0;
 }
 
+/**
+ * Detect wet or oily road surface patches.
+ *
+ * Scans ALL pixels in the lower 70% of the image so oil-spill patches
+ * (excluded from the road mask) are captured.
+ *
+ * Uses absolute pixel count as primary threshold — if ≥ 150 specifically
+ * oily pixels are found, detection is reported. Focused oil criteria:
+ *   isBrownish      : classic crude-oil colour
+ *   isRainbowSheen  : iridescent oil on wet road
+ *   isDarkOilPatch  : aged dark oil
+ *
+ * Returns a single ObstacleInfo bounding the detected region, labelled
+ * "Floating Oil" when oil dominates, "Wet/Oily Surface" otherwise.
+ */
+function detectWetOilySurface(
+  data: Uint8ClampedArray,
+  roadMask: Uint8Array,
+  width: number,
+  height: number,
+): ObstacleInfo | null {
+  // Scan lower 70% of image
+  const startY = Math.floor(height * 0.3);
+
+  let wetPixelCount = 0;
+  let oilyPixelCount = 0;
+  let minX = width;
+  let maxX = 0;
+  let minY = height;
+  let maxY = 0;
+
+  // Collect mean brightness of road-masked pixels for specular detection
+  let roadBrightnessSum = 0;
+  let roadPixelCount = 0;
+  for (let y = startY; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (roadMask[idx] === 0) continue;
+      const px = idx * 4;
+      roadBrightnessSum += (data[px] + data[px + 1] + data[px + 2]) / 3;
+      roadPixelCount++;
+    }
+  }
+  const meanBrightness =
+    roadPixelCount > 0 ? roadBrightnessSum / roadPixelCount : 100;
+
+  // Scan ALL pixels in the lower 70%
+  for (let y = startY; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      const px = idx * 4;
+      const r = data[px];
+      const g = data[px + 1];
+      const b = data[px + 2];
+      const brightness = (r + g + b) / 3;
+      const maxC = Math.max(r, g, b);
+      const minC = Math.min(r, g, b);
+      const saturation = maxC > 0 ? (maxC - minC) / maxC : 0;
+
+      // Wet surface: specular highlight on a road pixel
+      const isSpecular =
+        roadMask[idx] !== 0 &&
+        brightness > meanBrightness + 40 &&
+        brightness > 100;
+
+      // Classic crude-oil: brownish/reddish dark patch
+      const isBrownish =
+        brightness < 130 && r > g + 15 && r > b + 15 && saturation > 0.12;
+
+      // Iridescent oil sheen on wet road
+      const isRainbowSheen =
+        saturation > 0.2 && brightness > 15 && brightness < 120;
+
+      // Aged/dark oil patch with colour variation
+      const isDarkOilPatch = brightness < 80 && maxC - minC > 25;
+
+      const isOily = isBrownish || isRainbowSheen || isDarkOilPatch;
+
+      if (isSpecular || isOily) {
+        if (isSpecular) wetPixelCount++;
+        if (isOily) oilyPixelCount++;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  const signalPixels = wetPixelCount + oilyPixelCount;
+
+  // Use absolute pixel count as primary threshold — ratio was too restrictive
+  if (signalPixels < 150) return null;
+  if (maxX <= minX || maxY <= minY) return null;
+
+  const boxW = maxX - minX;
+  const boxH = maxY - minY;
+
+  // Lower minimum bounding box area
+  if (boxW * boxH < 500) return null;
+
+  // "Floating Oil" when oil-type pixels dominate; otherwise "Wet/Oily Surface"
+  const label =
+    oilyPixelCount > wetPixelCount ? "Floating Oil" : "Wet/Oily Surface";
+
+  // Confidence based on signal strength, capped at 0.92
+  const totalScanPixels = (height - startY) * width;
+  const signalRatio = signalPixels / Math.max(1, totalScanPixels);
+  const confidence = Math.min(0.92, 0.65 + signalRatio * 4);
+
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const boxBottom = maxY;
+  const dist = estimateDistance(boxBottom, height);
+  const isClose = boxBottom > height * 0.7 || dist < 5;
+
+  return {
+    id: `wet_oily_${Date.now()}`,
+    position: { x: centerX / width, y: centerY / height },
+    type: label,
+    confidenceLevel: confidence,
+    riskLevel: isClose
+      ? {
+          level: "High",
+          description:
+            "Slippery road surface detected — reduce speed immediately",
+        }
+      : {
+          level: "Moderate",
+          description: "Wet or oily road surface ahead — proceed with caution",
+        },
+    boundingBox: { x: minX, y: minY, width: boxW, height: boxH },
+    estimatedDistance: dist,
+  };
+}
 /**
  * Detect obstacles in the image/video frame
  */
@@ -137,17 +378,13 @@ export async function detectObstacles(
   const imageData = ctx.getImageData(0, 0, width, height);
   const data = imageData.data;
 
-  // Detect obstacles using color and position analysis
   const obstacles = detectObstaclesInFrame(data, roadMask, width, height);
-
-  // Assess emergency conditions
   const emergencyConditions = assessEmergencyConditions(
     obstacles,
     width,
     height,
   );
 
-  // Create visualization with obstacle highlighting
   const visualizationCanvas = createObstacleVisualization(
     img,
     obstacles,
@@ -177,7 +414,6 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 
 /**
  * Detect obstacles using color segmentation and position analysis.
- * Applies NMS to ensure only one bounding box per detected object.
  */
 function detectObstaclesInFrame(
   data: Uint8ClampedArray,
@@ -185,11 +421,10 @@ function detectObstaclesInFrame(
   width: number,
   height: number,
 ): ObstacleInfo[] {
-  const obstacles: ObstacleInfo[] = [];
+  const rawObstacles: ObstacleInfo[] = [];
   const visited = new Uint8Array(width * height);
-  const minObstacleSize = 200; // Raised from 50 — filters tiny false-positive fragments
+  const minObstacleSize = 200;
 
-  // Focus on road area and immediate surroundings
   const roadStartY = Math.floor(height * 0.3);
 
   for (let y = roadStartY; y < height; y++) {
@@ -203,19 +438,16 @@ function detectObstaclesInFrame(
       const g = data[pixelIdx + 1];
       const b = data[pixelIdx + 2];
 
-      // Detect potential obstacles (objects with distinct colors or high contrast)
       const brightness = (r + g + b) / 3;
       const saturation = calculateSaturation(r, g, b);
       const isRoad = roadMask[idx] > 0;
 
-      // Look for objects that stand out from the road
       const isObstacle =
-        (saturation > 0.25 && brightness > 40) || // Colorful objects (vehicles, signs)
-        (brightness > 180 && !isRoad) || // Bright objects (pedestrians in light clothing)
-        (brightness < 40 && !isRoad && y > height * 0.6); // Dark objects on road
+        (saturation > 0.25 && brightness > 40) ||
+        (brightness > 180 && !isRoad) ||
+        (brightness < 40 && !isRoad && y > height * 0.6);
 
       if (isObstacle) {
-        // Flood fill to find connected region
         const region = floodFill(data, visited, x, y, width, height, r, g, b);
 
         if (region.pixels.length >= minObstacleSize) {
@@ -224,27 +456,36 @@ function detectObstaclesInFrame(
             roadMask,
             width,
             height,
-            obstacles.length,
+            rawObstacles.length,
           );
-          // Only keep obstacles above the raised confidence threshold
           if (obstacle && obstacle.confidenceLevel >= 0.6) {
-            obstacles.push(obstacle);
+            rawObstacles.push(obstacle);
           }
         }
       }
     }
   }
 
-  // Apply NMS to eliminate overlapping duplicate boxes, then cap at 10 results
-  const nmsObstacles = applyNMS(obstacles).slice(0, 10);
+  // Step 1: NMS
+  const afterNMS = applyNMS(rawObstacles);
 
-  // Attach estimated distance to each obstacle
-  return nmsObstacles.map((obs) => ({
+  // Step 2: Merge nearby same-type boxes
+  const merged = mergeNearbyBoxes(afterNMS).slice(0, 10);
+
+  // Step 3: Detect wet/oily / floating oil surface
+  const wetOily = detectWetOilySurface(data, roadMask, width, height);
+
+  // Combine: surface detection appended as a separate labelled obstacle
+  const allObstacles: ObstacleInfo[] = [
+    ...merged,
+    ...(wetOily ? [wetOily] : []),
+  ];
+
+  return allObstacles.map((obs) => ({
     ...obs,
-    estimatedDistance: estimateDistance(
-      obs.boundingBox.y + obs.boundingBox.height,
-      height,
-    ),
+    estimatedDistance:
+      obs.estimatedDistance ??
+      estimateDistance(obs.boundingBox.y + obs.boundingBox.height, height),
   }));
 }
 
@@ -301,7 +542,6 @@ function floodFill(
     const g = data[pixelIdx + 1];
     const b = data[pixelIdx + 2];
 
-    // Check if color is similar
     const colorDiff =
       Math.abs(r - seedR) + Math.abs(g - seedG) + Math.abs(b - seedB);
     if (colorDiff > colorThreshold) continue;
@@ -318,7 +558,6 @@ function floodFill(
     minY = Math.min(minY, y);
     maxY = Math.max(maxY, y);
 
-    // Add neighbors
     stack.push({ x: x + 1, y });
     stack.push({ x: x - 1, y });
     stack.push({ x, y: y + 1 });
@@ -346,11 +585,9 @@ function analyzeObstacleRegion(
 ): ObstacleInfo | null {
   const { pixels, minX, maxX, minY, maxY, avgR, avgG, avgB } = region;
 
-  // Calculate center position
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
 
-  // Determine if obstacle is on road or beside it
   let onRoadPixels = 0;
   for (const { x, y } of pixels) {
     const idx = y * width + x;
@@ -362,7 +599,6 @@ function analyzeObstacleRegion(
   const onRoadRatio = onRoadPixels / pixels.length;
   const isOnRoad = onRoadRatio > 0.3;
 
-  // Classify obstacle type based on color and position
   const obstacleType = classifyObstacle(
     avgR,
     avgG,
@@ -371,10 +607,7 @@ function analyzeObstacleRegion(
     maxX - minX,
   );
 
-  // Determine risk level
   const riskLevel = determineRiskLevel(isOnRoad, centerY, height, maxY - minY);
-
-  // Raised confidence floor: 0.60 base, scaling up with region size
   const confidence = Math.min(0.95, 0.6 + (pixels.length / 1000) * 0.35);
 
   return {
@@ -403,17 +636,14 @@ function classifyObstacle(
     const brightness = (r + g + b) / 3;
     const aspectRatio = height / width;
 
-    // Vehicle detection (typically wider than tall, various colors)
     if (aspectRatio < 1.2 && height > 30) {
       return "Vehicle";
     }
 
-    // Pedestrian detection (taller than wide, usually brighter than road)
     if (aspectRatio > 1.5 && aspectRatio < 3 && brightness > 60) {
       return "Pedestrian";
     }
 
-    // Debris or unknown objects
     return "Debris/Obstacle";
   } catch (error) {
     console.error("[ObstacleDetection] Classification error:", error);
@@ -427,7 +657,6 @@ function determineRiskLevel(
   imageHeight: number,
   _objectHeight: number,
 ): { level: "High" | "Moderate" | "Low"; description: string } {
-  // Objects in lower part of image are closer
   const proximityRatio = centerY / imageHeight;
   const isClose = proximityRatio > 0.7;
 
@@ -466,7 +695,6 @@ function assessEmergencyConditions(
 ): EmergencyCondition[] {
   const emergencies: EmergencyCondition[] = [];
 
-  // Check for high-risk obstacles
   const highRiskObstacles = obstacles.filter(
     (o) => o.riskLevel.level === "High",
   );
@@ -483,7 +711,6 @@ function assessEmergencyConditions(
     });
   }
 
-  // Check for multiple obstacles (potential blocked road)
   const moderateRiskObstacles = obstacles.filter(
     (o) => o.riskLevel.level === "Moderate",
   );
@@ -499,7 +726,6 @@ function assessEmergencyConditions(
     });
   }
 
-  // Check for pedestrians
   const pedestrians = obstacles.filter(
     (o) => o.type === "Pedestrian" && o.riskLevel.level !== "Low",
   );
@@ -511,6 +737,28 @@ function assessEmergencyConditions(
       severity: {
         level: "Warning",
         urgency: "Exercise extreme caution",
+      },
+    });
+  }
+
+  // Floating oil / wet surface alert
+  const surfaceHazards = obstacles.filter(
+    (o) =>
+      o.type === "Wet/Oily Surface" ||
+      o.type === "Oily Surface" ||
+      o.type === "Floating Oil",
+  );
+  if (surfaceHazards.length > 0) {
+    const isOil = surfaceHazards.some((o) => o.type === "Floating Oil");
+    emergencies.push({
+      id: `emergency_${Date.now()}_wet`,
+      type: isOil ? "Floating Oil Hazard" : "Slippery Surface",
+      description: isOil
+        ? "Floating oil detected on road — severe skid risk"
+        : "Wet or oily road surface detected — reduced traction",
+      severity: {
+        level: "Warning",
+        urgency: "Reduce speed and avoid sudden braking",
       },
     });
   }
@@ -530,16 +778,15 @@ function drawWarningTriangle(
   const half = size / 2;
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(cx, cy - half); // top
-  ctx.lineTo(cx + half, cy + half); // bottom right
-  ctx.lineTo(cx - half, cy + half); // bottom left
+  ctx.moveTo(cx, cy - half);
+  ctx.lineTo(cx + half, cy + half);
+  ctx.lineTo(cx - half, cy + half);
   ctx.closePath();
   ctx.fillStyle = "rgba(255, 200, 0, 0.95)";
   ctx.fill();
   ctx.strokeStyle = "rgba(0,0,0,0.7)";
   ctx.lineWidth = 1.5;
   ctx.stroke();
-  // Exclamation
   ctx.fillStyle = "#000";
   ctx.font = `bold ${Math.floor(size * 0.45)}px sans-serif`;
   ctx.textAlign = "center";
@@ -574,7 +821,6 @@ function drawStopIcon(
   ctx.strokeStyle = "rgba(255,255,255,0.8)";
   ctx.lineWidth = 1.5;
   ctx.stroke();
-  // STOP text
   ctx.fillStyle = "#fff";
   ctx.font = `bold ${Math.floor(size * 0.28)}px sans-serif`;
   ctx.textAlign = "center";
@@ -585,7 +831,6 @@ function drawStopIcon(
 
 /**
  * Draw road zone color overlay (green=safe, yellow=caution, red=danger)
- * as semi-transparent trapezoid bands over the canvas.
  */
 function drawRoadZones(
   ctx: CanvasRenderingContext2D,
@@ -595,28 +840,24 @@ function drawRoadZones(
   const greenEnd = height * 0.4;
   const yellowEnd = height * 0.7;
 
-  // Green zone (top 40% — far/safe)
   const greenGrad = ctx.createLinearGradient(0, 0, 0, greenEnd);
   greenGrad.addColorStop(0, "rgba(34, 197, 94, 0.0)");
   greenGrad.addColorStop(1, "rgba(34, 197, 94, 0.18)");
   ctx.fillStyle = greenGrad;
   ctx.fillRect(0, 0, width, greenEnd);
 
-  // Yellow zone (40-70% — caution)
   const yellowGrad = ctx.createLinearGradient(0, greenEnd, 0, yellowEnd);
   yellowGrad.addColorStop(0, "rgba(251, 191, 36, 0.18)");
   yellowGrad.addColorStop(1, "rgba(251, 191, 36, 0.28)");
   ctx.fillStyle = yellowGrad;
   ctx.fillRect(0, greenEnd, width, yellowEnd - greenEnd);
 
-  // Red zone (bottom 30% — danger)
   const redGrad = ctx.createLinearGradient(0, yellowEnd, 0, height);
   redGrad.addColorStop(0, "rgba(239, 68, 68, 0.22)");
   redGrad.addColorStop(1, "rgba(239, 68, 68, 0.38)");
   ctx.fillStyle = redGrad;
   ctx.fillRect(0, yellowEnd, width, height - yellowEnd);
 
-  // Zone labels (small, top-right corner of each zone)
   const labelFont = `bold ${Math.max(10, Math.floor(width * 0.022))}px Inter, sans-serif`;
   ctx.font = labelFont;
   ctx.textAlign = "right";
@@ -634,12 +875,12 @@ function drawRoadZones(
 }
 
 /**
- * Create obstacle visualization matching STONKAM-style:
- * - Road zone color overlay (green/yellow/red)
- * - Blue bounding box per obstacle (single, NMS-enforced)
- * - Label: Type + Confidence above box
- * - Distance estimate below label
- * - Warning triangle + stop icon for danger zone obstacles
+ * Create obstacle visualization:
+ * - Road zone overlay
+ * - Single bounding box per obstacle
+ * - "Floating Oil" shown with orange dashed box + droplet icon
+ * - "Wet/Oily Surface" shown with teal dashed box + droplet icon
+ * - Warning icons for danger zone obstacles
  */
 function createObstacleVisualization(
   img: HTMLImageElement,
@@ -652,14 +893,11 @@ function createObstacleVisualization(
   canvas.height = height;
   const ctx = canvas.getContext("2d", { alpha: true })!;
 
-  // Draw original image
   ctx.drawImage(img, 0, 0, width, height);
-
-  // Draw road zone overlay
   drawRoadZones(ctx, width, height);
 
-  const dangerThresholdY = height * 0.7; // bottom 30% = danger
-  const dangerDistanceM = 5.0; // under 5m = danger
+  const dangerThresholdY = height * 0.7;
+  const dangerDistanceM = 5.0;
 
   const baseFontSize = Math.max(11, Math.floor(width * 0.028));
   const labelPadX = 8;
@@ -673,15 +911,33 @@ function createObstacleVisualization(
       obstacle.estimatedDistance ?? estimateDistance(boxBottom, height);
 
     const isDanger = boxBottom > dangerThresholdY || dist < dangerDistanceM;
+    const isFloatingOil = type === "Floating Oil";
+    const isWetOily =
+      type === "Wet/Oily Surface" || type === "Oily Surface" || isFloatingOil;
 
     // ---- Bounding box ----
-    // Blue box (STONKAM style), red tint for danger zone
-    const boxColor = isDanger
-      ? "rgba(239, 68, 68, 0.9)"
-      : "rgba(59, 130, 246, 0.9)"; // blue
-    const shadowColor = isDanger
-      ? "rgba(239, 68, 68, 0.5)"
-      : "rgba(59, 130, 246, 0.5)";
+    let boxColor: string;
+    let shadowColor: string;
+
+    if (isFloatingOil) {
+      // Orange dashed box — hazard on road surface
+      boxColor = "#FF8C00";
+      shadowColor = "rgba(255, 140, 0, 0.55)";
+      ctx.setLineDash([8, 4]);
+    } else if (isWetOily) {
+      // Teal dashed box for generic wet/oily surface
+      boxColor = "rgba(20, 184, 166, 0.95)";
+      shadowColor = "rgba(20, 184, 166, 0.5)";
+      ctx.setLineDash([8, 4]);
+    } else if (isDanger) {
+      boxColor = "rgba(239, 68, 68, 0.9)";
+      shadowColor = "rgba(239, 68, 68, 0.5)";
+      ctx.setLineDash([]);
+    } else {
+      boxColor = "rgba(59, 130, 246, 0.9)";
+      shadowColor = "rgba(59, 130, 246, 0.5)";
+      ctx.setLineDash([]);
+    }
 
     ctx.strokeStyle = boxColor;
     ctx.lineWidth = Math.max(2, Math.floor(width * 0.004));
@@ -694,10 +950,15 @@ function createObstacleVisualization(
       boundingBox.height,
     );
     ctx.shadowBlur = 0;
+    ctx.setLineDash([]);
 
     // ---- Labels ----
-    const labelText = `${type} ${(confidenceLevel * 100).toFixed(0)}%`;
-    const distText = `~${dist.toFixed(1)}m`;
+    // Prepend droplet emoji for oil/wet types
+    const displayType = isWetOily ? `\u{1F4A7} ${type}` : type;
+    const labelText = `${displayType} ${(confidenceLevel * 100).toFixed(0)}%`;
+    const distText = isWetOily
+      ? `Road Surface ~${dist.toFixed(1)}m`
+      : `~${dist.toFixed(1)}m`;
 
     ctx.font = `bold ${baseFontSize}px Inter, sans-serif`;
     const labelW =
@@ -712,46 +973,106 @@ function createObstacleVisualization(
     let labelY = boundingBox.y - labelH - 4;
     if (labelY < 0) labelY = boundingBox.y + boundingBox.height + 4;
 
-    // Background pill
-    const bgColor = isDanger
-      ? "rgba(239, 68, 68, 0.85)"
-      : "rgba(30, 64, 175, 0.85)"; // blue-800
+    // Background pill colour
+    let bgColor: string;
+    if (isFloatingOil) {
+      bgColor = "rgba(180, 83, 9, 0.88)"; // amber-800 — matches orange box
+    } else if (isWetOily) {
+      bgColor = "rgba(13, 148, 136, 0.88)"; // teal-600
+    } else if (isDanger) {
+      bgColor = "rgba(239, 68, 68, 0.85)";
+    } else {
+      bgColor = "rgba(30, 64, 175, 0.85)";
+    }
     ctx.fillStyle = bgColor;
     roundRect(ctx, labelX, labelY, labelW, labelH, 4);
     ctx.fill();
 
-    // Label text
     ctx.fillStyle = "#fff";
     ctx.font = `bold ${baseFontSize}px Inter, sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText(labelText, labelX + labelPadX, labelY + labelPadY);
 
-    // Distance text (slightly smaller, cyan)
-    ctx.fillStyle = isDanger ? "#fde68a" : "#93c5fd";
+    ctx.fillStyle = isFloatingOil
+      ? "#fed7aa" // orange-200
+      : isWetOily
+        ? "#99f6e4" // teal-200
+        : isDanger
+          ? "#fde68a" // amber-200
+          : "#93c5fd"; // blue-300
     ctx.font = `${baseFontSize - 1}px Inter, sans-serif`;
     ctx.fillText(distText, labelX + labelPadX, labelY + labelPadY + lineHeight);
 
-    // ---- Warning icons for danger zone ----
-    if (isDanger) {
+    // ---- Wet/Oily / Floating Oil: draw droplet inside box ----
+    if (isWetOily) {
+      drawDropletIcon(
+        ctx,
+        boundingBox.x + boundingBox.width / 2,
+        boundingBox.y + boundingBox.height / 2,
+        Math.min(32, Math.floor(boundingBox.height * 0.25)),
+        isFloatingOil,
+      );
+    }
+
+    // ---- Warning icons for danger zone (non surface obstacles) ----
+    if (isDanger && !isWetOily) {
       const iconSize = Math.max(18, Math.floor(width * 0.04));
       const iconY = labelY - iconSize - 6;
       const iconCenterY = Math.max(iconSize / 2 + 2, iconY + iconSize / 2);
       const boxCenterX = boundingBox.x + boundingBox.width / 2;
 
-      // Draw triangle (⚠) to the left of center
       drawWarningTriangle(
         ctx,
         boxCenterX - iconSize * 0.7,
         iconCenterY,
         iconSize,
       );
-      // Draw stop icon to the right of center
       drawStopIcon(ctx, boxCenterX + iconSize * 0.7, iconCenterY, iconSize);
     }
   }
 
   return canvas;
+}
+
+/**
+ * Draw a water-droplet icon at the given centre position.
+ * Orange fill for floating oil, teal for wet/oily.
+ */
+function drawDropletIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  isOil = false,
+): void {
+  if (size < 8) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - size);
+  ctx.bezierCurveTo(
+    cx + size * 0.6,
+    cy - size * 0.3,
+    cx + size * 0.8,
+    cy + size * 0.3,
+    cx,
+    cy + size * 0.9,
+  );
+  ctx.bezierCurveTo(
+    cx - size * 0.8,
+    cy + size * 0.3,
+    cx - size * 0.6,
+    cy - size * 0.3,
+    cx,
+    cy - size,
+  );
+  ctx.closePath();
+  ctx.fillStyle = isOil ? "rgba(255, 140, 0, 0.75)" : "rgba(20, 184, 166, 0.7)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.8)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**
