@@ -38,7 +38,7 @@ export default function RoadDetectionApp() {
             onValueChange={setActiveTab}
             className="w-full"
           >
-            <TabsList className="mx-auto grid h-12 w-full max-w-3xl grid-cols-3 rounded-2xl surface-primary p-1 shadow-lg">
+            <TabsList className="mx-auto grid h-12 w-full max-w-4xl grid-cols-3 rounded-2xl surface-primary p-1 shadow-lg">
               <TabsTrigger
                 value="camera"
                 data-ocid="camera.tab"

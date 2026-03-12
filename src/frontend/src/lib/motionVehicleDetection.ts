@@ -3,6 +3,8 @@
  * Detects both MOVING and STATIONARY obstacles on live camera.
  */
 
+import type { HazardBox } from "./liveHazardDetection";
+
 export interface MotionDetection {
   id: string;
   label: string;
@@ -11,6 +13,7 @@ export interface MotionDetection {
   boundingBox: { x: number; y: number; width: number; height: number };
   estimatedDistance: number;
   riskLevel: "High" | "Moderate" | "Low";
+  speedKmh?: number;
 }
 
 export interface MotionDetectionResult {
@@ -410,7 +413,7 @@ export function detectMovingObjects(
   };
 }
 
-// ─── Canvas overlay renderer ──────────────────────────────────────────────────
+// ─── Canvas overlay renderer (legacy — kept for compatibility) ────────────────
 
 export function drawDetectionsOnCanvas(
   ctx: CanvasRenderingContext2D,
@@ -513,6 +516,198 @@ export function drawDetectionsOnCanvas(
     }
   }
 }
+
+// ─── Prioritized renderer (new) ───────────────────────────────────────────────
+
+const VEHICLE_LABELS = new Set(["Vehicle", "Pedestrian", "Obstacle"]);
+
+function isVehicleOrObstacle(label: string): boolean {
+  for (const prefix of VEHICLE_LABELS) {
+    if (label.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+export function drawPrioritizedDetections(
+  ctx: CanvasRenderingContext2D,
+  vehicleDetections: MotionDetection[],
+  hazards: HazardBox[],
+  width: number,
+  height: number,
+  maxBoxes = 3,
+): void {
+  const baseFontSize = Math.max(13, Math.floor(width * 0.028));
+  const dangerY = height * 0.7;
+  let slotsUsed = 0;
+
+  // ── 1. Fog overlay (no slot consumed — it's a full-frame overlay) ──────────
+  const fogHazard = hazards.find((h) => h.type === "fog");
+  if (fogHazard) {
+    ctx.save();
+    ctx.fillStyle = "rgba(200, 200, 200, 0.35)";
+    ctx.fillRect(0, 0, width, Math.floor(height * 0.5));
+    ctx.fillStyle = "rgba(255, 230, 100, 0.92)";
+    ctx.font = `bold ${baseFontSize + 2}px Inter, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText("⚠ Fog Detected — Reduced Visibility", width / 2, 14);
+    ctx.restore();
+  }
+
+  // ── 2. Wet road overlay (no box slot) ─────────────────────────────────────
+  const wetHazard = hazards.find((h) => h.type === "wet");
+  if (wetHazard) {
+    ctx.save();
+    ctx.fillStyle = "rgba(59, 130, 246, 0.18)";
+    ctx.fillRect(0, Math.floor(height * 0.6), width, Math.floor(height * 0.4));
+    ctx.restore();
+  }
+
+  // ── 3. Pothole boxes (highest priority, consume slots) ────────────────────
+  const potholeHazards = hazards
+    .filter((h) => h.type === "pothole")
+    .sort((a, b) => b.confidence - a.confidence);
+
+  for (const hazard of potholeHazards) {
+    if (slotsUsed >= maxBoxes) break;
+    const { x, y, width: bw, height: bh } = hazard.boundingBox;
+    slotsUsed++;
+
+    // Yellow dashed box
+    ctx.save();
+    ctx.strokeStyle = "rgba(234, 179, 8, 1.0)";
+    ctx.lineWidth = Math.max(3, Math.floor(width * 0.006));
+    ctx.setLineDash([10, 5]);
+    ctx.shadowColor = "rgba(234, 179, 8, 0.6)";
+    ctx.shadowBlur = 12;
+    ctx.strokeRect(x, y, bw, bh);
+    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(234, 179, 8, 0.08)";
+    ctx.fillRect(x, y, bw, bh);
+    ctx.restore();
+
+    // Label
+    const lx = Math.min(x, width - 220);
+    let ly = y - baseFontSize * 2 - 10;
+    if (ly < 0) ly = y + bh + 4;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(161, 98, 7, 0.92)";
+    ctx.beginPath();
+    ctx.roundRect(lx, ly, 220, baseFontSize * 2 + 10, 4);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${baseFontSize}px Inter, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(hazard.label, lx + 7, ly + 4);
+    ctx.fillStyle = "#fef9c3";
+    ctx.font = `${baseFontSize - 2}px Inter, sans-serif`;
+    ctx.fillText(
+      `~${hazard.estimatedDistance.toFixed(0)}m`,
+      lx + 7,
+      ly + baseFontSize + 6,
+    );
+    ctx.restore();
+  }
+
+  // ── 4. Closest moving vehicle(s) for remaining slots ──────────────────────
+  const movingVehicles = vehicleDetections
+    .filter((d) => d.motion === "Moving" && isVehicleOrObstacle(d.label))
+    .sort((a, b) => a.estimatedDistance - b.estimatedDistance);
+
+  for (const det of movingVehicles) {
+    if (slotsUsed >= maxBoxes) break;
+    slotsUsed++;
+
+    const { x, y, width: bw, height: bh } = det.boundingBox;
+    const boxBottom = y + bh;
+    const isClose = boxBottom > dangerY || det.estimatedDistance < 5;
+
+    const strokeColor = isClose
+      ? "rgba(255, 50, 50, 1.0)"
+      : "rgba(255, 140, 0, 1.0)";
+    const labelBg = isClose
+      ? "rgba(185, 28, 28, 0.92)"
+      : "rgba(194, 65, 12, 0.90)";
+    const distColor = isClose ? "#fde68a" : "#fed7aa";
+
+    const lineW = Math.max(3, Math.floor(width * 0.007));
+    ctx.save();
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = lineW;
+    ctx.shadowColor = strokeColor;
+    ctx.shadowBlur = 14;
+    ctx.strokeRect(x, y, bw, bh);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = isClose ? "rgba(255,50,50,0.07)" : "rgba(255,140,0,0.07)";
+    ctx.fillRect(x, y, bw, bh);
+    ctx.restore();
+
+    // Label: "Vehicle Detected" + speed if available
+    const speedText =
+      det.speedKmh !== undefined && det.speedKmh > 0
+        ? `${Math.round(det.speedKmh)} km/h`
+        : null;
+    const labelText = "Vehicle Detected";
+    const distText = `~${det.estimatedDistance.toFixed(1)}m`;
+
+    ctx.save();
+    ctx.font = `bold ${baseFontSize}px Inter, sans-serif`;
+    const lw = ctx.measureText(labelText).width;
+    const swW = speedText ? ctx.measureText(speedText).width : 0;
+    const labelBoxW = Math.max(lw, swW, ctx.measureText(distText).width) + 16;
+    const lineCount = speedText ? 3 : 2;
+    const labelBoxH = baseFontSize * lineCount + 10 + (lineCount - 1) * 4;
+
+    const lx = Math.min(x, width - labelBoxW - 2);
+    let ly = y - labelBoxH - 4;
+    if (ly < 0) ly = y + bh + 4;
+
+    ctx.fillStyle = labelBg;
+    ctx.beginPath();
+    ctx.roundRect(lx, ly, labelBoxW, labelBoxH, 4);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${baseFontSize}px Inter, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(labelText, lx + 8, ly + 5);
+
+    if (speedText) {
+      ctx.fillStyle =
+        det.speedKmh !== undefined && det.speedKmh > 40 ? "#fca5a5" : "#86efac";
+      ctx.font = `${baseFontSize - 1}px Inter, sans-serif`;
+      ctx.fillText(speedText, lx + 8, ly + baseFontSize + 9);
+      ctx.fillStyle = distColor;
+      ctx.font = `${baseFontSize - 2}px Inter, sans-serif`;
+      ctx.fillText(distText, lx + 8, ly + baseFontSize * 2 + 11);
+    } else {
+      ctx.fillStyle = distColor;
+      ctx.font = `${baseFontSize - 2}px Inter, sans-serif`;
+      ctx.fillText(distText, lx + 8, ly + baseFontSize + 9);
+    }
+    ctx.restore();
+
+    // Warning icons for danger-zone vehicles
+    if (isClose) {
+      const iconSize = Math.max(18, Math.floor(width * 0.04));
+      const iconCenterX = x + bw / 2;
+      const iconCenterY = Math.max(iconSize / 2 + 2, ly - iconSize / 2 - 4);
+      drawWarningTriangle(
+        ctx,
+        iconCenterX - iconSize * 0.8,
+        iconCenterY,
+        iconSize,
+      );
+      drawStopOctagon(ctx, iconCenterX + iconSize * 0.8, iconCenterY, iconSize);
+    }
+  }
+}
+
+// ─── Icon helpers ─────────────────────────────────────────────────────────────
 
 function drawWarningTriangle(
   ctx: CanvasRenderingContext2D,

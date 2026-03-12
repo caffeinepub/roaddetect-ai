@@ -1,36 +1,31 @@
 # Road Detection System
 
 ## Current State
-The app has a full road detection system with:
-- Live camera and image upload detection tabs
-- Obstacle detection with NMS (IoU 0.45, confidence ≥ 0.6)
-- Bounding boxes drawn in `createObstacleVisualization()` in `obstacleDetection.ts`
-- Basic colored boxes (red/yellow/green) with label + confidence
-- No road zone overlay (green/yellow/red zones)
-- No distance estimates shown on canvas
-- No warning icons for close obstacles
+LiveCameraSection.tsx uses frame differencing (motionVehicleDetection.ts) to detect moving/stationary obstacles. It draws bounding boxes for all detected objects with orange (moving) and blue-dashed (stationary) styles. There is no cap on bounding box count. Pothole, fog, and wet-surface detection only work on uploaded images. Speed tracking and popup alerts exist for vehicle approach and high speed. The UI shows detection stats, live data panel, and a detection result card.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Road zone color overlay on canvas: green (top 40% = far/safe), yellow (40-70% = caution), red (bottom 30% = danger)
-- Distance estimate label above each bounding box: estimated in meters using vertical position heuristic
-- Warning icons (triangle ⚠ + stop symbol 🛑) drawn on canvas above any obstacle whose bounding box bottom is in the bottom 30% of image OR estimated distance < 5m
-- Blue bounding boxes for all obstacles (matching the reference image STONKAM style)
+- In-camera hazard detection running every 1s on live frames:
+  - Fog detection via pixel brightness/contrast analysis (confidence ≥ 0.65)
+  - Wet/slippery road detection via reflection pattern analysis (confidence ≥ 0.65)
+  - Pothole detection via dark region/texture analysis in lower image area (confidence ≥ 0.65)
+- Hazard bounding box overlays on live canvas (pothole box labeled "Pothole Detected", fog warning banner)
+- Popup toast for "Wet & Slippery Road" when wet conditions detected (rate-limited to once per 8s)
+- Priority ranking system: hazards (pothole > fog > wet) get boxes first, then closest vehicle fills remaining slots
+- Max 2-3 visible bounding boxes at any time
+- Vehicle label simplified to "Vehicle Detected" with speed above box
 
 ### Modify
-- `createObstacleVisualization()` in `obstacleDetection.ts`: complete rewrite of rendering logic to include road zones, distance labels, blue boxes, and conditional warning icons
-- Both live camera overlay and image upload use the same `createObstacleVisualization` function, so the change applies to both automatically
+- drawDetectionsOnCanvas in motionVehicleDetection.ts: accept max-box count and priority list, filter out non-hazard background objects (trees, buildings, sky, road markings), label vehicles as "Vehicle Detected" instead of "Vehicle (Moving)"
+- LiveCameraSection.tsx: integrate in-camera hazard detection, apply box limit, pass hazard data to canvas renderer, show fog overlay banner on canvas, trigger wet road popup alert
+- Detection result card: show "Pothole Detected" or "Fog Detected" when relevant hazards are found
 
 ### Remove
-- Red/yellow/green risk-level based box colors (replaced by unified blue boxes, with warning icons for danger zone)
+- Stationary object boxes from default view (still detected internally, but no box drawn — keeps UI minimal for driver)
+- Old unlimited box rendering in favour of capped priority-based rendering
 
 ## Implementation Plan
-1. Rewrite `createObstacleVisualization()` in `obstacleDetection.ts`:
-   - Draw road zone gradient overlay (green/yellow/red trapezoid shapes from top to bottom)
-   - For each obstacle: compute estimated distance from vertical position
-   - Draw blue bounding box with glow
-   - Draw label: `Type Confidence%` above box
-   - Draw distance below label: `~Xm`
-   - If obstacle is in danger zone (box bottom > 70% height OR dist < 5m): draw warning triangle + stop icon above box
-2. No changes needed in LiveCameraSection.tsx or ImageUploadSection.tsx — both already consume `visualizationUrl` from the result
+1. Create `src/lib/liveHazardDetection.ts` — pixel analysis functions for fog, wet surface, and pothole detection on raw ImageData from live camera
+2. Update `motionVehicleDetection.ts` — add renderPrioritized() export that accepts vehicle detections + hazard detections, applies max=3 cap, hazard-first priority, labels vehicles as "Vehicle Detected", and skips stationary non-hazard objects
+3. Update `LiveCameraSection.tsx` — run hazard detection every 1s on offscreen canvas, trigger wet road toast (rate-limited), show fog banner overlay, pass all detections to renderPrioritized(), show hazard data in detection panel

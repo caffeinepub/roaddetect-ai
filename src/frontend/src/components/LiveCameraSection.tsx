@@ -14,10 +14,12 @@ import {
   useStoreObstacleEvent,
   useStorePotholeEvent,
 } from "@/hooks/useQueries";
+import { detectLiveHazards } from "@/lib/liveHazardDetection";
+import type { LiveHazardResult } from "@/lib/liveHazardDetection";
 import {
   type MotionDetection,
   detectMovingObjects,
-  drawDetectionsOnCanvas,
+  drawPrioritizedDetections,
 } from "@/lib/motionVehicleDetection";
 import {
   type TrackingState,
@@ -26,6 +28,12 @@ import {
 } from "@/lib/obstacleTracking";
 import { processRoadDetection } from "@/lib/roadDetection";
 import { detectSpeedLimit } from "@/lib/speedLimitDetection";
+import {
+  type TrackedVehicle,
+  applyNMS,
+  getObjectCategory,
+  updateVehicleTracker,
+} from "@/lib/vehicleSpeedTracker";
 import type {
   EmergencyCondition,
   EnvironmentalConditions,
@@ -39,11 +47,13 @@ import {
   Camera,
   CameraOff,
   CheckCircle2,
+  Droplets,
   Eye,
   Loader2,
   Play,
   RefreshCw,
   Square,
+  Wind,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -131,12 +141,12 @@ export default function LiveCameraSection({
     pedestrians: 0,
     debris: 0,
     potholes: 0,
-    moving: 0,
-    stationary: 0,
+    hazards: 0,
   });
   const [errorDetails, setErrorDetails] = useState<string>("");
+  const [liveHazards, setLiveHazards] = useState<LiveHazardResult | null>(null);
+
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
-  // Offscreen canvas for clean pixel capture (no overlay contamination)
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(
     document.createElement("canvas"),
   );
@@ -151,6 +161,17 @@ export default function LiveCameraSection({
   const lastDetectionIdRef = useRef<string>("");
   const lastSpeedLimitDetectionRef = useRef<number>(0);
   const lastFullDetectionRef = useRef<number>(0);
+  const lastHazardDetectionRef = useRef<number>(0);
+  const lastWetAlertRef = useRef<number>(0);
+  const [lastDetection, setLastDetection] = useState<{
+    name: string;
+    confidence: number;
+    timestamp: string;
+    speed?: number;
+  } | null>(null);
+  const [totalVehiclesSession, setTotalVehiclesSession] = useState(0);
+  const totalVehiclesRef = useRef(0);
+  const speedTrackerRef = useRef<Map<string, TrackedVehicle>>(new Map());
 
   // Camera status effect
   useEffect(() => {
@@ -301,7 +322,6 @@ export default function LiveCameraSection({
       return;
     }
 
-    // Resize overlay canvas to video dimensions
     if (
       canvas.width !== video.videoWidth ||
       canvas.height !== video.videoHeight
@@ -313,8 +333,6 @@ export default function LiveCameraSection({
     const W = canvas.width;
     const H = canvas.height;
 
-    // ── Use offscreen canvas for clean pixel capture ────────────────────────
-    // This prevents the overlay drawings from polluting the frame diff data.
     const offscreen = offscreenCanvasRef.current;
     if (offscreen.width !== W || offscreen.height !== H) {
       offscreen.width = W;
@@ -329,7 +347,6 @@ export default function LiveCameraSection({
       return;
     }
 
-    // Draw clean video frame to offscreen canvas
     offCtx.drawImage(video, 0, 0, W, H);
     const currentFrameData = offCtx.getImageData(0, 0, W, H)
       .data as Uint8ClampedArray;
@@ -339,7 +356,35 @@ export default function LiveCameraSection({
 
     const currentTime = performance.now();
 
-    // ── Motion detection every frame (~30 FPS) ──────────────────────────────
+    // ── Hazard detection every 1 second ──────────────────────────────────────
+    if (currentTime - lastHazardDetectionRef.current > 1000) {
+      lastHazardDetectionRef.current = currentTime;
+      const imgData = offCtx.getImageData(0, 0, W, H);
+      const hazardResult = detectLiveHazards(imgData, W, H);
+      setLiveHazards(hazardResult);
+
+      // Wet road popup — rate-limited to once per 8 s
+      if (hazardResult.wetDetected && hazardResult.wetConfidence >= 0.65) {
+        if (currentTime - lastWetAlertRef.current > 8000) {
+          lastWetAlertRef.current = currentTime;
+          toast.warning("Wet & Slippery Road", {
+            description: "Wet surface detected. Drive with caution.",
+          });
+        }
+      }
+
+      // Update hazard count
+      setDetectionCount((prev) => ({
+        ...prev,
+        hazards:
+          prev.hazards +
+          (hazardResult.fogDetected ? 1 : 0) +
+          (hazardResult.wetDetected ? 1 : 0) +
+          hazardResult.potholeCount,
+      }));
+    }
+
+    // ── Motion detection every frame (~30 FPS) ────────────────────────────
     if (
       previousFrameDataRef.current &&
       previousFrameDataRef.current.length === currentFrameData.length
@@ -349,49 +394,111 @@ export default function LiveCameraSection({
         previousFrameDataRef.current,
         W,
         H,
-        15, // diff threshold
-        120, // min blob size
+        15,
+        120,
       );
 
-      if (motionResult.detections.length > 0) {
-        // Draw clean video frame to overlay canvas, then draw bounding boxes on top
-        ctx.drawImage(video, 0, 0, W, H);
-        drawDetectionsOnCanvas(ctx, motionResult.detections, W, H);
-        setMotionDetections(motionResult.detections);
+      // Draw clean video frame, then prioritized hazard + vehicle overlays
+      ctx.drawImage(video, 0, 0, W, H);
+      drawPrioritizedDetections(
+        ctx,
+        motionResult.detections,
+        liveHazards?.hazards ?? [],
+        W,
+        H,
+        3,
+      );
+      setMotionDetections(motionResult.detections);
 
-        // Update counts
-        const moving = motionResult.detections.filter(
-          (d) => d.motion === "Moving",
-        ).length;
-        const stationary = motionResult.detections.filter(
-          (d) => d.motion === "Stationary",
-        ).length;
-        setDetectionCount((prev) => ({
-          ...prev,
-          obstacles: prev.obstacles + motionResult.detections.length,
-          moving: prev.moving + moving,
-          stationary: prev.stationary + stationary,
-          vehicles:
-            prev.vehicles +
-            motionResult.detections.filter((d) => d.label.startsWith("Vehicle"))
-              .length,
-          pedestrians:
-            prev.pedestrians +
-            motionResult.detections.filter((d) =>
-              d.label.startsWith("Pedestrian"),
-            ).length,
-        }));
-      } else {
-        // No detections — still refresh the overlay canvas with the current video frame
+      // Speed tracking
+      const preds = motionResult.detections.map((d) => ({
+        class: d.label,
+        score: d.confidence,
+        bbox: [
+          d.boundingBox.x,
+          d.boundingBox.y,
+          d.boundingBox.width,
+          d.boundingBox.height,
+        ],
+      }));
+      const nmsed = applyNMS(preds, 0.5);
+      updateVehicleTracker(
+        nmsed,
+        speedTrackerRef.current,
+        performance.now(),
+        W,
+        H,
+      );
+
+      if (nmsed.length > 0) {
+        const top = nmsed[0];
+        const trackEntry = [...speedTrackerRef.current.values()].find(
+          (t) => t.label === top.class,
+        );
+        const speedKmh = trackEntry?.speedKmh ?? 0;
+        const cat = getObjectCategory(top.class);
+        if (cat === "vehicle") {
+          totalVehiclesRef.current++;
+          setTotalVehiclesSession(totalVehiclesRef.current);
+        }
+        const now = new Date();
+        setLastDetection({
+          name: top.class.charAt(0).toUpperCase() + top.class.slice(1),
+          confidence: Math.round(top.score * 100),
+          timestamp: now.toLocaleTimeString(),
+          speed: speedKmh > 0 ? speedKmh : undefined,
+        });
+
+        if (trackEntry?.isNew && !trackEntry.alertedApproach) {
+          trackEntry.alertedApproach = true;
+          toast.warning("Vehicle Approaching", {
+            description: `${top.class} detected nearby`,
+          });
+        }
+        if (
+          trackEntry &&
+          speedKmh > 40 &&
+          !trackEntry.alertedSpeed &&
+          performance.now() - trackEntry.alertedSpeedAt > 5000
+        ) {
+          trackEntry.alertedSpeed = true;
+          trackEntry.alertedSpeedAt = performance.now();
+          toast.error("High Speed Vehicle Alert", {
+            description: `${top.class} estimated at ~${Math.round(speedKmh)} km/h`,
+          });
+        }
+      }
+
+      const moving = motionResult.detections.filter(
+        (d) => d.motion === "Moving",
+      ).length;
+      setDetectionCount((prev) => ({
+        ...prev,
+        obstacles: prev.obstacles + motionResult.detections.length,
+        vehicles:
+          prev.vehicles +
+          motionResult.detections.filter((d) => d.label.startsWith("Vehicle"))
+            .length,
+        pedestrians:
+          prev.pedestrians +
+          motionResult.detections.filter((d) =>
+            d.label.startsWith("Pedestrian"),
+          ).length,
+      }));
+
+      if (moving === 0 && motionResult.detections.length === 0) {
+        // No detections, still refresh canvas
         ctx.drawImage(video, 0, 0, W, H);
+        // Still draw hazard overlays even with no motion
+        if (liveHazards?.hazards?.length) {
+          drawPrioritizedDetections(ctx, [], liveHazards.hazards, W, H, 3);
+        }
         setMotionDetections([]);
       }
     } else {
-      // First frame or size mismatch — just draw the video so it's not blank
       ctx.drawImage(video, 0, 0, W, H);
     }
 
-    // Store OFFSCREEN pixel data (clean, no overlays) for next frame comparison
     previousFrameDataRef.current = new Uint8ClampedArray(currentFrameData);
 
     // ── Full road detection (throttled to ~1 FPS) ───────────────────────────
@@ -399,7 +506,6 @@ export default function LiveCameraSection({
     if (timeSinceFullDetection > 1000) {
       lastFullDetectionRef.current = currentTime;
 
-      // Use offscreen canvas for clean snapshot
       const dataUrl = offscreen.toDataURL("image/jpeg", 0.65);
 
       try {
@@ -611,6 +717,7 @@ export default function LiveCameraSection({
     storeObstacleEvent,
     storePotholeEvent,
     realTimeFPS,
+    liveHazards,
   ]);
 
   const handleStartCamera = async () => {
@@ -646,6 +753,10 @@ export default function LiveCameraSection({
     setCameraStatus("idle");
     setSystemStatus("idle");
     previousFrameDataRef.current = null;
+    speedTrackerRef.current = new Map();
+    totalVehiclesRef.current = 0;
+    setLastDetection(null);
+    setLiveHazards(null);
     toast.info("Camera Stopped", {
       description: "Camera has been deactivated",
     });
@@ -660,6 +771,7 @@ export default function LiveCameraSection({
     trackingStateRef.current = initializeTrackingState();
     previousFrameDataRef.current = null;
     setMotionDetections([]);
+    setLiveHazards(null);
     toast.success("Detection Started", {
       description: "Real-time road detection is now active",
     });
@@ -776,9 +888,6 @@ export default function LiveCameraSection({
   const movingCount = motionDetections.filter(
     (d) => d.motion === "Moving",
   ).length;
-  const stationaryCount = motionDetections.filter(
-    (d) => d.motion === "Stationary",
-  ).length;
 
   return (
     <div className="space-y-4">
@@ -795,8 +904,8 @@ export default function LiveCameraSection({
             </div>
           </div>
           <CardDescription>
-            Real-time moving and stationary obstacle detection with bounding
-            boxes
+            Real-time hazard detection — potholes, fog, wet road, and moving
+            vehicles
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -883,22 +992,24 @@ export default function LiveCameraSection({
             <div className="flex flex-wrap gap-3 text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-sm bg-orange-500" />
-                Moving vehicle/obstacle
+                Vehicle Detected (moving)
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-3 rounded-sm border-2 border-blue-500 border-dashed" />
-                Stationary obstacle
+                <span className="inline-block w-3 h-3 rounded-sm border-2 border-yellow-500 border-dashed" />
+                Pothole Detected
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-3 rounded-sm bg-red-500" />
-                Danger zone (&lt;5m)
+                <span className="inline-block w-3 h-3 rounded-sm bg-gray-400/50" />
+                Fog overlay
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm bg-blue-500/40" />
+                Wet road overlay
               </div>
             </div>
           )}
 
           {/* Camera Preview */}
-          {/* The overlay canvas always renders the latest video frame (with or without detections). */}
-          {/* The raw video element is hidden since the canvas mirrors it. */}
           <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
             <video
               ref={videoRef}
@@ -929,7 +1040,8 @@ export default function LiveCameraSection({
                 <Alert className="bg-background/80 backdrop-blur">
                   <CheckCircle2 className="h-4 w-4" />
                   <AlertDescription>
-                    Camera ready. Click "Start Detection" to begin analysis.
+                    Camera ready. Click &ldquo;Start Detection&rdquo; to begin
+                    analysis.
                   </AlertDescription>
                 </Alert>
               </div>
@@ -941,17 +1053,31 @@ export default function LiveCameraSection({
                   <Activity className="h-3 w-3 mr-1" />
                   LIVE
                 </Badge>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap justify-end">
                   {movingCount > 0 && (
                     <Badge className="bg-orange-500 text-white text-xs">
-                      {movingCount} Moving
+                      {movingCount} Vehicle{movingCount !== 1 ? "s" : ""}
                     </Badge>
                   )}
-                  {stationaryCount > 0 && (
-                    <Badge variant="secondary" className="text-xs">
-                      {stationaryCount} Stationary
+                  {liveHazards?.fogDetected && (
+                    <Badge className="bg-gray-500 text-white text-xs gap-1">
+                      <Wind className="h-3 w-3" />
+                      Fog
                     </Badge>
                   )}
+                  {liveHazards?.wetDetected && (
+                    <Badge className="bg-blue-500 text-white text-xs gap-1">
+                      <Droplets className="h-3 w-3" />
+                      Wet
+                    </Badge>
+                  )}
+                  {liveHazards?.potholeCount !== undefined &&
+                    liveHazards.potholeCount > 0 && (
+                      <Badge className="bg-yellow-500 text-black text-xs">
+                        {liveHazards.potholeCount} Pothole
+                        {liveHazards.potholeCount !== 1 ? "s" : ""}
+                      </Badge>
+                    )}
                   <Badge variant="secondary">
                     {realTimeFPS.toFixed(1)} FPS
                   </Badge>
@@ -972,141 +1098,285 @@ export default function LiveCameraSection({
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/30">
-                <div className="text-xs text-orange-400">Moving</div>
+                <div className="text-xs text-orange-400">Vehicles Detected</div>
                 <div className="text-2xl font-bold text-orange-500">
-                  {detectionCount.moving}
+                  {detectionCount.vehicles}
                 </div>
               </div>
-              <div className="p-3 rounded-lg bg-muted">
-                <div className="text-xs text-muted-foreground">Stationary</div>
-                <div className="text-2xl font-bold">
-                  {detectionCount.stationary}
-                </div>
-              </div>
-              <div className="p-3 rounded-lg bg-muted">
-                <div className="text-xs text-muted-foreground">Potholes</div>
+              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                <div className="text-xs text-yellow-400">Potholes</div>
                 <div className="text-2xl font-bold text-yellow-500">
                   {detectionCount.potholes}
                 </div>
               </div>
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                <div className="text-xs text-blue-400">Hazards</div>
+                <div className="text-2xl font-bold text-blue-400">
+                  {detectionCount.hazards}
+                </div>
+              </div>
             </div>
+          )}
+
+          {/* Hazard badges */}
+          {isDetecting && liveHazards && (
+            <div className="flex flex-wrap gap-2">
+              {liveHazards.fogDetected && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1 text-xs bg-gray-500/20 border border-gray-500/40 text-gray-300"
+                  data-ocid="hazard.fog_indicator"
+                >
+                  <Wind className="h-3 w-3" />
+                  Fog Detected ({Math.round(liveHazards.fogConfidence * 100)}%)
+                </Badge>
+              )}
+              {liveHazards.wetDetected && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1 text-xs bg-blue-500/20 border border-blue-500/40 text-blue-300"
+                  data-ocid="hazard.wet_indicator"
+                >
+                  <Droplets className="h-3 w-3" />
+                  Wet Road ({Math.round(liveHazards.wetConfidence * 100)}%)
+                </Badge>
+              )}
+              {liveHazards.potholeCount > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1 text-xs bg-yellow-500/20 border border-yellow-500/40 text-yellow-300"
+                  data-ocid="hazard.pothole_indicator"
+                >
+                  {liveHazards.potholeCount} Pothole
+                  {liveHazards.potholeCount !== 1 ? "s" : ""} Detected
+                </Badge>
+              )}
+            </div>
+          )}
+
+          {/* Detection Result Card */}
+          {lastDetection && isActive && (
+            <Card
+              className="border-primary/20 bg-card/60"
+              data-ocid="detection.card"
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+                  <Activity className="h-4 w-4 text-primary" />
+                  Detection Result
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Object</p>
+                    <p className="font-semibold text-foreground text-sm">
+                      {lastDetection.name}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Confidence
+                    </p>
+                    <p className="font-semibold text-primary text-sm">
+                      {lastDetection.confidence}%
+                    </p>
+                  </div>
+                  {lastDetection.speed !== undefined &&
+                    lastDetection.speed > 0 && (
+                      <div className="rounded-lg bg-muted/40 p-3">
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Speed
+                        </p>
+                        <p
+                          className={`font-semibold text-sm ${
+                            lastDetection.speed > 40
+                              ? "text-destructive"
+                              : "text-green-500"
+                          }`}
+                        >
+                          ~{Math.round(lastDetection.speed)} km/h
+                        </p>
+                      </div>
+                    )}
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Timestamp
+                    </p>
+                    <p className="font-semibold text-foreground text-sm">
+                      {lastDetection.timestamp}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Source</p>
+                    <p className="font-semibold text-foreground text-sm">
+                      Live Camera
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground text-right">
+                  Total vehicles this session:{" "}
+                  <span className="text-primary font-medium">
+                    {totalVehiclesSession}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Live Detection Panel */}
-          {isDetecting && (motionDetections.length > 0 || metrics) && (
-            <div className="rounded-lg border border-primary/30 bg-muted/30 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Eye className="h-4 w-4 text-primary" />
-                Live Detection Data
-                <Badge variant="secondary" className="ml-auto text-xs">
-                  {realTimeFPS.toFixed(1)} FPS
-                </Badge>
-              </div>
-
-              {/* Road info */}
-              {metrics && (
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
-                    <span className="text-muted-foreground">Road Type</span>
-                    <span className="font-medium capitalize">
-                      {metrics.roadType || "Analyzing..."}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
-                    <span className="text-muted-foreground">Weather</span>
-                    <span className="font-medium capitalize">
-                      {metrics.environmentalConditions?.weather || "Clear"}
-                    </span>
-                  </div>
+          {isDetecting &&
+            (motionDetections.length > 0 || metrics || liveHazards) && (
+              <div className="rounded-lg border border-primary/30 bg-muted/30 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <Eye className="h-4 w-4 text-primary" />
+                  Live Detection Data
+                  <Badge variant="secondary" className="ml-auto text-xs">
+                    {realTimeFPS.toFixed(1)} FPS
+                  </Badge>
                 </div>
-              )}
 
-              {/* Motion detections */}
-              {motionDetections.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Detected Objects
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {motionDetections.map((det) => (
-                      <Badge
-                        key={det.id}
-                        variant={
-                          det.riskLevel === "High"
-                            ? "destructive"
-                            : det.motion === "Moving"
-                              ? "default"
-                              : "secondary"
-                        }
-                        className={`text-xs gap-1 ${
-                          det.motion === "Moving"
-                            ? "bg-orange-500 hover:bg-orange-600 text-white"
-                            : ""
-                        }`}
-                      >
-                        {det.label}
-                        <span className="opacity-80">
-                          {Math.round(det.confidence * 100)}%
-                        </span>
-                        <span className="opacity-60">
-                          ~{det.estimatedDistance.toFixed(1)}m
-                        </span>
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Potholes */}
-              {potholes.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Potholes
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {potholes.map((p) => (
-                      <Badge
-                        key={p.id}
-                        variant="outline"
-                        className="text-xs border-yellow-500/60 text-yellow-500"
-                      >
-                        {p.severity} • {p.distance.toFixed(0)}m away
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Emergency */}
-              {emergencyConditions.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-xs font-medium text-destructive uppercase tracking-wide">
-                    Emergency Alerts
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {emergencyConditions.map((ec) => (
-                      <Badge
-                        key={ec.id}
-                        variant="destructive"
-                        className="text-xs"
-                      >
-                        {ec.type} — {ec.description}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {motionDetections.length === 0 &&
-                potholes.length === 0 &&
-                emergencyConditions.length === 0 && (
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3 text-green-500" />
-                    No obstacles detected — road clear
+                {/* Road info */}
+                {metrics && (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
+                      <span className="text-muted-foreground">Road Type</span>
+                      <span className="font-medium capitalize">
+                        {metrics.roadType || "Analyzing..."}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 border border-border">
+                      <span className="text-muted-foreground">Weather</span>
+                      <span className="font-medium capitalize">
+                        {metrics.environmentalConditions?.weather || "Clear"}
+                      </span>
+                    </div>
                   </div>
                 )}
-            </div>
-          )}
+
+                {/* Motion detections */}
+                {motionDetections.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Detected Objects
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {motionDetections
+                        .filter((d) => d.motion === "Moving")
+                        .map((det) => (
+                          <Badge
+                            key={det.id}
+                            className="text-xs gap-1 bg-orange-500 hover:bg-orange-600 text-white"
+                          >
+                            Vehicle Detected
+                            <span className="opacity-80">
+                              {Math.round(det.confidence * 100)}%
+                            </span>
+                            <span className="opacity-60">
+                              ~{det.estimatedDistance.toFixed(1)}m
+                            </span>
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Live hazard badges in panel */}
+                {liveHazards &&
+                  (liveHazards.fogDetected ||
+                    liveHazards.wetDetected ||
+                    liveHazards.potholeCount > 0) && (
+                    <div className="space-y-1">
+                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        Road Hazards
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {liveHazards.fogDetected && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs border-gray-500/60 text-gray-400 gap-1"
+                          >
+                            <Wind className="h-3 w-3" />
+                            Fog {Math.round(liveHazards.fogConfidence * 100)}%
+                          </Badge>
+                        )}
+                        {liveHazards.wetDetected && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs border-blue-500/60 text-blue-400 gap-1"
+                          >
+                            <Droplets className="h-3 w-3" />
+                            Wet Road{" "}
+                            {Math.round(liveHazards.wetConfidence * 100)}%
+                          </Badge>
+                        )}
+                        {liveHazards.potholeCount > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs border-yellow-500/60 text-yellow-500"
+                          >
+                            {liveHazards.potholeCount} Pothole
+                            {liveHazards.potholeCount !== 1 ? "s" : ""}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                {/* Potholes from full road detection */}
+                {potholes.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Road Damage
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {potholes.map((p) => (
+                        <Badge
+                          key={p.id}
+                          variant="outline"
+                          className="text-xs border-yellow-500/60 text-yellow-500"
+                        >
+                          {p.severity} • {p.distance.toFixed(0)}m away
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Emergency */}
+                {emergencyConditions.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium text-destructive uppercase tracking-wide">
+                      Emergency Alerts
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {emergencyConditions.map((ec) => (
+                        <Badge
+                          key={ec.id}
+                          variant="destructive"
+                          className="text-xs"
+                        >
+                          {ec.type} — {ec.description}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {motionDetections.filter((d) => d.motion === "Moving")
+                  .length === 0 &&
+                  potholes.length === 0 &&
+                  emergencyConditions.length === 0 &&
+                  !liveHazards?.fogDetected &&
+                  !liveHazards?.wetDetected &&
+                  !liveHazards?.potholeCount && (
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                      No hazards detected — road clear
+                    </div>
+                  )}
+              </div>
+            )}
         </CardContent>
       </Card>
 
